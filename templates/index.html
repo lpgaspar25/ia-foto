@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Tools - Tradutor & Substituidor</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f0f0f;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+        .header h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 0.4rem;
+        }
+        .header p {
+            color: #888;
+            font-size: 0.95rem;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 2rem;
+            border-bottom: 2px solid #2a2a2a;
+        }
+        .tab {
+            flex: 1;
+            padding: 0.9rem 1rem;
+            text-align: center;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: #888;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+        .tab:hover { color: #ccc; }
+        .tab.active {
+            color: #4a9eff;
+            border-bottom-color: #4a9eff;
+        }
+        .tab.active-green {
+            color: #22c55e;
+            border-bottom-color: #22c55e;
+        }
+        .tab-icon { margin-right: 0.4rem; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Card */
+        .card {
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 12px;
+            padding: 1.8rem;
+            margin-bottom: 1.5rem;
+        }
+        .card h2 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #ccc;
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Upload */
+        .upload-area {
+            border: 2px dashed #333;
+            border-radius: 10px;
+            padding: 2.5rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+        .upload-area:hover, .upload-area.dragover {
+            border-color: #4a9eff;
+            background: rgba(74, 158, 255, 0.05);
+        }
+        .upload-area.has-image {
+            border-color: #22c55e;
+            padding: 1rem;
+        }
+        .upload-icon { font-size: 2.5rem; margin-bottom: 0.8rem; }
+        .upload-text { color: #888; font-size: 0.9rem; }
+        .upload-text span { color: #4a9eff; font-weight: 500; }
+        .upload-area input { display: none; }
+
+        .preview-container {
+            display: none;
+            align-items: center;
+            gap: 1rem;
+        }
+        .preview-container.visible { display: flex; }
+        .preview-img {
+            max-width: 120px;
+            max-height: 90px;
+            border-radius: 6px;
+            border: 1px solid #333;
+        }
+        .preview-info { flex: 1; text-align: left; }
+        .preview-info .name { font-weight: 500; color: #fff; font-size: 0.9rem; }
+        .preview-info .size { color: #888; font-size: 0.8rem; margin-top: 2px; }
+        .preview-remove {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: 0.5rem;
+        }
+        .preview-remove:hover { color: #ef4444; }
+
+        /* Idiomas */
+        .idiomas-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.6rem;
+        }
+        @media (max-width: 600px) {
+            .idiomas-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        .idioma-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.7rem 0.9rem;
+            background: #222;
+            border: 1px solid #333;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .idioma-item:hover { border-color: #555; }
+        .idioma-item.selected {
+            border-color: #4a9eff;
+            background: rgba(74, 158, 255, 0.1);
+        }
+        .idioma-item input { display: none; }
+        .idioma-check {
+            width: 18px; height: 18px;
+            border: 2px solid #555;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            transition: all 0.15s;
+            flex-shrink: 0;
+        }
+        .idioma-item.selected .idioma-check {
+            background: #4a9eff;
+            border-color: #4a9eff;
+            color: #fff;
+        }
+        .idioma-flag { font-size: 1.1rem; }
+        .idioma-name { font-size: 0.85rem; color: #ccc; }
+        .select-all-btn {
+            background: none;
+            border: 1px solid #444;
+            color: #888;
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            font-size: 0.78rem;
+            cursor: pointer;
+            float: right;
+            margin-top: -1.8rem;
+        }
+        .select-all-btn:hover { border-color: #4a9eff; color: #4a9eff; }
+
+        /* Marca */
+        .marca-row {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        @media (max-width: 600px) {
+            .marca-row { flex-direction: column; }
+        }
+        .marca-field { flex: 1; }
+        .marca-field label {
+            display: block;
+            font-size: 0.8rem;
+            color: #888;
+            margin-bottom: 0.3rem;
+        }
+        .marca-field input {
+            width: 100%;
+            padding: 0.65rem 0.9rem;
+            background: #222;
+            border: 1px solid #333;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 0.9rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .marca-field input:focus { border-color: #4a9eff; }
+        .marca-field input::placeholder { color: #555; }
+        .marca-arrow {
+            font-size: 1.3rem;
+            color: #555;
+            margin-top: 1.2rem;
+        }
+        .marca-hint {
+            color: #666;
+            font-size: 0.78rem;
+            margin-top: 0.6rem;
+        }
+
+        /* Botão */
+        .btn-traduzir {
+            width: 100%;
+            padding: 1rem;
+            background: linear-gradient(135deg, #4a9eff, #2563eb);
+            border: none;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            letter-spacing: 0.3px;
+        }
+        .btn-traduzir:hover { transform: translateY(-1px); box-shadow: 0 4px 15px rgba(74, 158, 255, 0.3); }
+        .btn-traduzir:disabled {
+            background: #333;
+            color: #666;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* Loading */
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 2rem;
+        }
+        .loading.visible { display: block; }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid #333;
+            border-top-color: #4a9eff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { color: #888; font-size: 0.9rem; }
+        .loading-lang { color: #4a9eff; font-weight: 600; }
+
+        /* Resultados */
+        .resultados {
+            display: none;
+        }
+        .resultados.visible { display: block; }
+        .resultado-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 1rem;
+        }
+        .resultado-item {
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 10px;
+            overflow: hidden;
+            transition: transform 0.15s;
+        }
+        .resultado-item:hover { transform: translateY(-2px); }
+        .resultado-item.erro { border-color: #ef4444; }
+        .resultado-img {
+            width: 100%;
+            aspect-ratio: 16/10;
+            object-fit: contain;
+            background: #111;
+            display: block;
+        }
+        .resultado-footer {
+            padding: 0.8rem 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .resultado-lang {
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        .resultado-lang .flag { margin-right: 0.3rem; }
+        .resultado-size { color: #666; font-size: 0.75rem; }
+        .btn-download {
+            background: #222;
+            border: 1px solid #444;
+            color: #4a9eff;
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            font-size: 0.78rem;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.15s;
+        }
+        .btn-download:hover { background: #4a9eff; color: #fff; border-color: #4a9eff; }
+        .resultado-erro {
+            padding: 1.5rem;
+            text-align: center;
+            color: #ef4444;
+            font-size: 0.85rem;
+        }
+
+        .btn-novo {
+            display: inline-block;
+            margin-top: 1.2rem;
+            padding: 0.6rem 1.2rem;
+            background: #222;
+            border: 1px solid #444;
+            color: #ccc;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .btn-novo:hover { border-color: #4a9eff; color: #4a9eff; }
+
+        /* Substituir - uploads lado a lado */
+        .dual-upload {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: 1rem;
+            align-items: center;
+        }
+        @media (max-width: 600px) {
+            .dual-upload { grid-template-columns: 1fr; }
+            .dual-arrow { transform: rotate(90deg); }
+        }
+        .dual-arrow {
+            font-size: 1.5rem;
+            color: #555;
+            text-align: center;
+        }
+        .upload-label {
+            font-size: 0.8rem;
+            color: #888;
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+        .upload-area-mini {
+            border: 2px dashed #333;
+            border-radius: 10px;
+            padding: 1.5rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .upload-area-mini:hover { border-color: #22c55e; background: rgba(34,197,94,0.05); }
+        .upload-area-mini.has-image { border-color: #22c55e; padding: 0.8rem; }
+        .upload-area-mini input { display: none; }
+        .upload-area-mini .upload-icon { font-size: 1.8rem; margin-bottom: 0.4rem; }
+        .upload-area-mini .upload-text { font-size: 0.8rem; }
+        .mini-preview { max-width: 100%; max-height: 100px; border-radius: 6px; }
+
+        .instrucoes-field textarea {
+            width: 100%;
+            padding: 0.65rem 0.9rem;
+            background: #222;
+            border: 1px solid #333;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 0.85rem;
+            outline: none;
+            resize: vertical;
+            min-height: 70px;
+            font-family: inherit;
+        }
+        .instrucoes-field textarea:focus { border-color: #22c55e; }
+        .instrucoes-field textarea::placeholder { color: #555; }
+
+        .btn-substituir {
+            width: 100%;
+            padding: 1rem;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            border: none;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-substituir:hover { transform: translateY(-1px); box-shadow: 0 4px 15px rgba(34,197,94,0.3); }
+        .btn-substituir:disabled {
+            background: #333; color: #666; cursor: not-allowed; transform: none; box-shadow: none;
+        }
+
+        /* Resultado substituição */
+        .sub-resultado {
+            display: none;
+        }
+        .sub-resultado.visible { display: block; }
+        .sub-resultado-img {
+            width: 100%;
+            max-height: 500px;
+            object-fit: contain;
+            border-radius: 8px;
+            background: #111;
+            display: block;
+            margin-bottom: 1rem;
+        }
+        .sub-resultado-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        /* Multi-file preview list */
+        .files-list { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+        .file-thumb {
+            position: relative;
+            width: 100px; height: 100px;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 2px solid #333;
+            cursor: default;
+        }
+        .file-thumb img {
+            width: 100%; height: 100%;
+            object-fit: cover;
+        }
+        .file-thumb .file-remove {
+            position: absolute; top: 2px; right: 2px;
+            background: rgba(0,0,0,0.7); color: #fff;
+            border: none; border-radius: 50%;
+            width: 22px; height: 22px;
+            font-size: 12px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .file-thumb .file-remove:hover { background: #e74c3c; }
+        .file-thumb .file-name {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            background: rgba(0,0,0,0.7);
+            color: #fff; font-size: 0.6rem;
+            padding: 2px 4px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .file-count {
+            color: #aaa; font-size: 0.85rem; margin-bottom: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+
+        <!-- Header -->
+        <div class="header">
+            <h1>Image Tools</h1>
+            <p>Ferramentas de IA para imagens de produtos</p>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('traduzir')">
+                <span class="tab-icon">🌍</span> Traduzir Imagem
+            </div>
+            <div class="tab" onclick="switchTab('substituir')">
+                <span class="tab-icon">🔄</span> Substituir Produto
+            </div>
+        </div>
+
+        <!-- ═══════ ABA 1: TRADUZIR ═══════ -->
+        <div class="tab-content active" id="tab-traduzir">
+
+        <!-- Upload -->
+        <div class="card" id="uploadCard">
+            <h2>Imagens</h2>
+            <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+                <div id="uploadPlaceholder">
+                    <div class="upload-icon">🖼️</div>
+                    <div class="upload-text">
+                        Arraste suas imagens aqui ou <span>clique para selecionar</span>
+                    </div>
+                    <div class="upload-text" style="margin-top:0.3rem; font-size:0.78rem;">
+                        PNG, JPG, WEBP (m&aacute;x 16MB) &middot; M&uacute;ltiplas imagens
+                    </div>
+                </div>
+                <input type="file" id="fileInput" accept=".png,.jpg,.jpeg,.webp" multiple>
+            </div>
+            <div id="filesPreviewList" style="display:none; margin-top:0.75rem;"></div>
+            <button class="preview-remove" id="removeBtn" style="display:none; margin-top:0.5rem;" onclick="removerTodasImagens(event)">
+                ✕ Remover todas
+            </button>
+        </div>
+
+        <!-- Idiomas -->
+        <div class="card">
+            <h2>Idiomas</h2>
+            <button class="select-all-btn" onclick="toggleSelectAll()">Selecionar todos</button>
+            <div class="idiomas-grid" id="idiomasGrid">
+                {% for code, name in idiomas.items() %}
+                <label class="idioma-item" data-code="{{ code }}">
+                    <input type="checkbox" name="idiomas" value="{{ code }}">
+                    <div class="idioma-check">✓</div>
+                    <span class="idioma-flag">
+                        {% if code == 'en' %}🇬🇧{% elif code == 'es' %}🇪🇸{% elif code == 'fr' %}🇫🇷{% elif code == 'it' %}🇮🇹{% elif code == 'de' %}🇩🇪{% elif code == 'nl' %}🇳🇱{% endif %}
+                    </span>
+                    <span class="idioma-name">{{ name }}</span>
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Marca -->
+        <div class="card">
+            <h2>Trocar Marca <span style="font-weight:400; color:#666; text-transform:none;">(opcional)</span></h2>
+            <div class="marca-row">
+                <div class="marca-field">
+                    <label>Marca original na imagem</label>
+                    <input type="text" id="marcaDe" placeholder="Ex: HEFESTUS">
+                </div>
+                <div class="marca-arrow">→</div>
+                <div class="marca-field">
+                    <label>Sua marca</label>
+                    <input type="text" id="marcaPara" placeholder="Ex: MULTIALPHA">
+                </div>
+            </div>
+            <div class="marca-hint">Deixe em branco para manter a marca original</div>
+        </div>
+
+        <!-- Bot&atilde;o -->
+        <button class="btn-traduzir" id="btnTraduzir" onclick="traduzir()" disabled>
+            Traduzir Imagem
+        </button>
+
+        <!-- Loading -->
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <div class="loading-text">
+                Traduzindo para <span class="loading-lang" id="loadingLang">...</span>
+            </div>
+            <div class="loading-text" style="margin-top:0.3rem; font-size:0.8rem; color:#666;">
+                Cada idioma leva ~15-30 segundos
+            </div>
+        </div>
+
+        <!-- Resultados -->
+        <div class="resultados" id="resultados">
+            <div class="card">
+                <h2>Resultados</h2>
+                <div class="resultado-grid" id="resultadoGrid"></div>
+                <button class="btn-novo" onclick="novaTraducao()">← Nova tradu&ccedil;&atilde;o</button>
+            </div>
+        </div>
+
+        </div><!-- /tab-traduzir -->
+
+        <!-- ═══════ ABA 2: SUBSTITUIR PRODUTO ═══════ -->
+        <div class="tab-content" id="tab-substituir">
+
+            <!-- Upload duplo -->
+            <div class="card">
+                <h2>Imagens</h2>
+                <div class="dual-upload">
+                    <div>
+                        <span class="upload-label">Imagem A — Produto (referência)</span>
+                        <div class="upload-area-mini" id="subUploadA" onclick="document.getElementById('subFileA').click()">
+                            <div id="subPlaceholderA">
+                                <div class="upload-icon">📷</div>
+                                <div class="upload-text">Foto com o produto original</div>
+                            </div>
+                            <img class="mini-preview" id="subPreviewA" style="display:none">
+                            <input type="file" id="subFileA" accept=".png,.jpg,.jpeg,.webp">
+                        </div>
+                    </div>
+                    <div class="dual-arrow">→</div>
+                    <div>
+                        <span class="upload-label">Imagem B — Cena / Lifestyle (editar)</span>
+                        <div class="upload-area-mini" id="subUploadB" onclick="document.getElementById('subFileB').click()">
+                            <div id="subPlaceholderB">
+                                <div class="upload-icon">🛍️</div>
+                                <div class="upload-text">Foto do produto que vai substituir</div>
+                            </div>
+                            <img class="mini-preview" id="subPreviewB" style="display:none">
+                            <input type="file" id="subFileB" accept=".png,.jpg,.jpeg,.webp">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Instru&ccedil;&otilde;es extras -->
+            <div class="card">
+                <h2>Instru&ccedil;&otilde;es extras <span style="font-weight:400; color:#666; text-transform:none;">(opcional)</span></h2>
+                <div class="instrucoes-field">
+                    <textarea id="subInstrucoes" placeholder="Ex: O produto &eacute; um rel&oacute;gio. Manter o mesmo encaixe no pulso. Preservar tatuagens vis&iacute;veis."></textarea>
+                </div>
+            </div>
+
+            <!-- Bot&atilde;o -->
+            <button class="btn-substituir" id="btnSubstituir" onclick="substituir()" disabled>
+                Substituir Produto
+            </button>
+
+            <!-- Loading -->
+            <div class="loading" id="subLoading">
+                <div class="spinner" style="border-top-color:#22c55e;"></div>
+                <div class="loading-text">
+                    Processando substitui&ccedil;&atilde;o com <span class="loading-lang" style="color:#22c55e;">Gemini AI</span>
+                </div>
+                <div class="loading-text" style="margin-top:0.3rem; font-size:0.8rem; color:#666;">
+                    Isso pode levar ~30-60 segundos
+                </div>
+            </div>
+
+            <!-- Resultado -->
+            <div class="sub-resultado" id="subResultado">
+                <div class="card">
+                    <h2>Resultado</h2>
+                    <img class="sub-resultado-img" id="subResultImg" src="">
+                    <div class="sub-resultado-footer">
+                        <div>
+                            <span style="color:#22c55e; font-weight:500;">Substitui&ccedil;&atilde;o conclu&iacute;da</span>
+                            <span id="subResultSize" style="color:#666; font-size:0.8rem; margin-left:0.5rem;"></span>
+                        </div>
+                        <a class="btn-download" id="subDownloadBtn" href="#" download style="background:#16a34a; border-color:#16a34a; color:#fff;">
+                            ⬇ Download JPG
+                        </a>
+                    </div>
+                    <button class="btn-novo" onclick="novaSubstituicao()" style="margin-top:1rem;">← Nova substitui&ccedil;&atilde;o</button>
+                </div>
+            </div>
+
+        </div><!-- /tab-substituir -->
+
+    </div>
+
+    <script>
+        const FLAGS = {en:'🇬🇧', es:'🇪🇸', fr:'🇫🇷', it:'🇮🇹', de:'🇩🇪', nl:'🇳🇱'};
+        let selectedFiles = [];
+
+        // ─── Upload (múltiplas imagens) ───
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+
+        ['dragenter','dragover'].forEach(e => {
+            uploadArea.addEventListener(e, ev => { ev.preventDefault(); uploadArea.classList.add('dragover'); });
+        });
+        ['dragleave','drop'].forEach(e => {
+            uploadArea.addEventListener(e, ev => { ev.preventDefault(); uploadArea.classList.remove('dragover'); });
+        });
+        uploadArea.addEventListener('drop', ev => {
+            const files = [...ev.dataTransfer.files];
+            files.forEach(f => addFile(f));
+        });
+        fileInput.addEventListener('change', ev => {
+            [...ev.target.files].forEach(f => addFile(f));
+            fileInput.value = '';
+        });
+
+        function addFile(file) {
+            if (!file.type.match(/image\/(png|jpeg|webp)/)) {
+                alert('Formato não suportado: ' + file.name + '. Use PNG, JPG ou WEBP.');
+                return;
+            }
+            // Evitar duplicatas pelo nome
+            if (selectedFiles.some(f => f.name === file.name && f.size === file.size)) return;
+            selectedFiles.push(file);
+            renderFilesPreviews();
+            checkReady();
+        }
+
+        function renderFilesPreviews() {
+            const list = document.getElementById('filesPreviewList');
+            if (selectedFiles.length === 0) {
+                list.style.display = 'none';
+                document.getElementById('uploadPlaceholder').style.display = '';
+                document.getElementById('removeBtn').style.display = 'none';
+                uploadArea.classList.remove('has-image');
+                return;
+            }
+
+            document.getElementById('uploadPlaceholder').style.display = 'none';
+            document.getElementById('removeBtn').style.display = 'block';
+            uploadArea.classList.add('has-image');
+            list.style.display = 'block';
+
+            list.innerHTML = `<div class="file-count">${selectedFiles.length} imagem(ns) selecionada(s)</div><div class="files-list"></div>`;
+            const grid = list.querySelector('.files-list');
+
+            selectedFiles.forEach((file, idx) => {
+                const thumb = document.createElement('div');
+                thumb.className = 'file-thumb';
+                const reader = new FileReader();
+                reader.onload = e => {
+                    thumb.innerHTML = `
+                        <img src="${e.target.result}" alt="${file.name}">
+                        <button class="file-remove" onclick="removeFile(${idx}, event)" title="Remover">✕</button>
+                        <div class="file-name">${file.name}</div>
+                    `;
+                };
+                reader.readAsDataURL(file);
+                grid.appendChild(thumb);
+            });
+        }
+
+        function removeFile(idx, ev) {
+            if (ev) ev.stopPropagation();
+            selectedFiles.splice(idx, 1);
+            renderFilesPreviews();
+            checkReady();
+        }
+
+        function removerTodasImagens(ev) {
+            if (ev) ev.stopPropagation();
+            selectedFiles = [];
+            fileInput.value = '';
+            renderFilesPreviews();
+            checkReady();
+        }
+
+        // ─── Idiomas ───
+        document.querySelectorAll('.idioma-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const cb = item.querySelector('input');
+                cb.checked = !cb.checked;
+                item.classList.toggle('selected', cb.checked);
+                checkReady();
+            });
+        });
+
+        function toggleSelectAll() {
+            const items = document.querySelectorAll('.idioma-item');
+            const allSelected = [...items].every(i => i.classList.contains('selected'));
+            items.forEach(item => {
+                const cb = item.querySelector('input');
+                cb.checked = !allSelected;
+                item.classList.toggle('selected', !allSelected);
+            });
+            checkReady();
+        }
+
+        function checkReady() {
+            const hasFiles = selectedFiles.length > 0;
+            const hasIdioma = document.querySelectorAll('.idioma-item.selected').length > 0;
+            document.getElementById('btnTraduzir').disabled = !(hasFiles && hasIdioma);
+        }
+
+        // ─── Traduzir ───
+        async function traduzir() {
+            const idiomas = [...document.querySelectorAll('.idioma-item.selected')]
+                .map(i => i.dataset.code);
+            const marcaDe = document.getElementById('marcaDe').value.trim();
+            const marcaPara = document.getElementById('marcaPara').value.trim();
+
+            const formData = new FormData();
+            selectedFiles.forEach(f => formData.append('imagens', f));
+            idiomas.forEach(l => formData.append('idiomas', l));
+            formData.append('marca_de', marcaDe);
+            formData.append('marca_para', marcaPara);
+
+            // UI: loading
+            document.getElementById('btnTraduzir').disabled = true;
+            document.getElementById('loading').classList.add('visible');
+            document.getElementById('resultados').classList.remove('visible');
+            document.getElementById('loadingLang').textContent = idiomas.map(c =>
+                FLAGS[c] + ' ' + c.toUpperCase()
+            ).join(', ');
+
+            try {
+                const resp = await fetch('/traduzir', { method: 'POST', body: formData });
+                const data = await resp.json();
+
+                if (data.erro) {
+                    alert('Erro: ' + data.erro);
+                    return;
+                }
+
+                mostrarResultados(data.resultados);
+            } catch (err) {
+                alert('Erro de conexão: ' + err.message);
+            } finally {
+                document.getElementById('loading').classList.remove('visible');
+                document.getElementById('btnTraduzir').disabled = false;
+            }
+        }
+
+        function mostrarResultados(resultados) {
+            const grid = document.getElementById('resultadoGrid');
+            grid.innerHTML = '';
+
+            // Agrupar por imagem original se houver múltiplas
+            const porImagem = {};
+            resultados.forEach(r => {
+                const key = r.imagem_original || 'default';
+                if (!porImagem[key]) porImagem[key] = [];
+                porImagem[key].push(r);
+            });
+
+            const keys = Object.keys(porImagem);
+            const multiImagem = keys.length > 1;
+
+            keys.forEach(key => {
+                if (multiImagem) {
+                    grid.innerHTML += `<div style="grid-column:1/-1; margin-top:1rem; padding:0.5rem 0; border-bottom:1px solid #333; color:#aaa; font-size:0.85rem;">📁 ${key}</div>`;
+                }
+
+                porImagem[key].forEach(r => {
+                    if (r.erro) {
+                        grid.innerHTML += `
+                            <div class="resultado-item erro">
+                                <div class="resultado-erro">
+                                    ${FLAGS[r.idioma]} ${r.idioma_nome}<br>
+                                    ❌ ${r.erro}
+                                </div>
+                            </div>`;
+                    } else {
+                        grid.innerHTML += `
+                            <div class="resultado-item">
+                                <img class="resultado-img" src="${r.preview}" alt="${r.idioma_nome}">
+                                <div class="resultado-footer">
+                                    <div>
+                                        <div class="resultado-lang">
+                                            <span class="flag">${FLAGS[r.idioma]}</span>${r.idioma_nome}
+                                        </div>
+                                        <div class="resultado-size">${r.tamanho_kb} KB · JPG</div>
+                                    </div>
+                                    <a class="btn-download" href="${r.download_url}" download>
+                                        ⬇ Download
+                                    </a>
+                                </div>
+                            </div>`;
+                    }
+                });
+            });
+
+            document.getElementById('resultados').classList.add('visible');
+        }
+
+        function novaTraducao() {
+            document.getElementById('resultados').classList.remove('visible');
+            removerTodasImagens();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // ─── Tabs ───
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active', 'active-green'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+            if (tab === 'traduzir') {
+                document.querySelectorAll('.tab')[0].classList.add('active');
+            } else {
+                document.querySelectorAll('.tab')[1].classList.add('active-green');
+            }
+            document.getElementById('tab-' + tab).classList.add('active');
+        }
+
+        // ─── Substituir Produto ───
+        let subFileA = null, subFileB = null;
+
+        document.getElementById('subFileA').addEventListener('change', ev => {
+            if (ev.target.files[0]) handleSubFile('A', ev.target.files[0]);
+        });
+        document.getElementById('subFileB').addEventListener('change', ev => {
+            if (ev.target.files[0]) handleSubFile('B', ev.target.files[0]);
+        });
+
+        function handleSubFile(side, file) {
+            if (!file.type.match(/image\/(png|jpeg|webp)/)) { alert('Use PNG, JPG ou WEBP.'); return; }
+            if (side === 'A') subFileA = file; else subFileB = file;
+
+            const reader = new FileReader();
+            reader.onload = e => {
+                const preview = document.getElementById('subPreview' + side);
+                const placeholder = document.getElementById('subPlaceholder' + side);
+                const area = document.getElementById('subUpload' + side);
+                preview.src = e.target.result;
+                preview.style.display = 'block';
+                placeholder.style.display = 'none';
+                area.classList.add('has-image');
+                checkSubReady();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function checkSubReady() {
+            document.getElementById('btnSubstituir').disabled = !(subFileA && subFileB);
+        }
+
+        async function substituir() {
+            const formData = new FormData();
+            formData.append('imagem_cena', subFileA);
+            formData.append('imagem_produto', subFileB);
+            formData.append('instrucoes', document.getElementById('subInstrucoes').value.trim());
+
+            document.getElementById('btnSubstituir').disabled = true;
+            document.getElementById('subLoading').classList.add('visible');
+            document.getElementById('subResultado').classList.remove('visible');
+
+            try {
+                const resp = await fetch('/substituir', { method: 'POST', body: formData });
+                const data = await resp.json();
+
+                if (data.erro) {
+                    alert('Erro: ' + data.erro);
+                    return;
+                }
+
+                document.getElementById('subResultImg').src = data.preview;
+                document.getElementById('subDownloadBtn').href = data.download_url;
+                document.getElementById('subResultSize').textContent = data.tamanho_kb + ' KB';
+                document.getElementById('subResultado').classList.add('visible');
+            } catch (err) {
+                alert('Erro: ' + err.message);
+            } finally {
+                document.getElementById('subLoading').classList.remove('visible');
+                document.getElementById('btnSubstituir').disabled = false;
+            }
+        }
+
+        function novaSubstituicao() {
+            document.getElementById('subResultado').classList.remove('visible');
+            // Reset uploads
+            subFileA = null; subFileB = null;
+            ['A','B'].forEach(s => {
+                document.getElementById('subPreview' + s).style.display = 'none';
+                document.getElementById('subPlaceholder' + s).style.display = '';
+                document.getElementById('subUpload' + s).classList.remove('has-image');
+                document.getElementById('subFile' + s).value = '';
+            });
+            document.getElementById('subInstrucoes').value = '';
+            checkSubReady();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    </script>
+</body>
+</html>
