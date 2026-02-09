@@ -17,8 +17,12 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
+import logging
 from flask import Flask, render_template, request, jsonify, send_file
 from PIL import Image
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
 
 try:
     from openai import OpenAI
@@ -147,8 +151,8 @@ def traduzir_imagem(client: OpenAI, imagem_bytes: bytes, mime_type: str,
                         if isinstance(v, dict) and "b64_json" in v:
                             return base64.standard_b64decode(v["b64_json"])
 
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"[Tradução] Responses API falhou: {type(e).__name__}: {e}")
 
     # Método 2: Images Edit API
     try:
@@ -164,9 +168,10 @@ def traduzir_imagem(client: OpenAI, imagem_bytes: bytes, mime_type: str,
             img_data = response.data[0]
             if hasattr(img_data, "b64_json") and img_data.b64_json:
                 return base64.standard_b64decode(img_data.b64_json)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"[Tradução] Images Edit API falhou: {type(e).__name__}: {e}")
 
+    logger.error("[Tradução] Todos os métodos falharam")
     return None
 
 
