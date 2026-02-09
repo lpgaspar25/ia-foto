@@ -72,11 +72,13 @@ IDIOMAS = {
 
 PROMPT_TEMPLATE = """Translate ALL text in this image from Portuguese to {idioma_nome}.
 {marca_instrucao}
+IMPORTANT: The target language is {idioma_nome}. ALL translated text MUST be in {idioma_nome}, not in English or any other language.
+
 RULES:
 - Keep the EXACT same layout, positions, fonts, colors, sizes, and design
 - Only change the text content — nothing else in the image should change
 - Keep measurement units (cm, mm, kg, etc.) unchanged
-- Translate measurement labels (ALTURA→HEIGHT, LENTE→LENS, FRENTE→FRONT, PONTE→BRIDGE, HASTE→TEMPLE, MEDIDAS→MEASUREMENTS, INCLUSO EM SEU PEDIDO→INCLUDED IN YOUR ORDER, etc.)
+- Translate ALL text labels, titles, descriptions, and disclaimers to {idioma_nome}
 - Maintain the same visual hierarchy, spacing, and alignment
 - The output image must look identical to the original except for the translated text
 - Keep any icons, logos, and decorative elements exactly as they are
