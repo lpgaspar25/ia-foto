@@ -102,7 +102,7 @@ def converter_para_jpg(imagem_bytes: bytes) -> bytes:
     if img.mode in ("RGBA", "P"):
         img = img.convert("RGB")
     buffer = io.BytesIO()
-    img.save(buffer, format="JPEG", quality=95)
+    img.save(buffer, format="JPEG", quality=85, optimize=True, progressive=True, subsampling=0)
     return buffer.getvalue()
 
 
