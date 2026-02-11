@@ -735,6 +735,38 @@
             text-align: center;
         }
 
+        /* Format toggle */
+        .format-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.6rem 0;
+        }
+        .format-toggle label {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            cursor: pointer;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            padding: 0.45rem 0.8rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            transition: var(--transition);
+        }
+        .format-toggle label:hover { border-color: var(--border-hover); }
+        .format-toggle label.active {
+            border-color: var(--accent);
+            color: var(--accent-hover);
+            background: var(--accent-subtle);
+        }
+        .format-toggle input { display: none; }
+        .format-hint {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            margin-top: 0.3rem;
+        }
+
         /* CSV idiomas grid (reuse) */
         .csv-idiomas-grid {
             display: grid;
@@ -827,6 +859,22 @@
             <div class="marca-hint">Deixe em branco para manter a marca original</div>
         </div>
 
+        <!-- Formato de saída -->
+        <div class="card">
+            <h2>Formato de saída</h2>
+            <div class="format-toggle" id="formatToggle1">
+                <label class="active" data-format="webp" onclick="setFormat('formatToggle1', 'webp')">
+                    <input type="radio" name="formato1" value="webp" checked>
+                    🖼️ WebP
+                </label>
+                <label data-format="jpeg" onclick="setFormat('formatToggle1', 'jpeg')">
+                    <input type="radio" name="formato1" value="jpeg">
+                    📷 JPEG
+                </label>
+            </div>
+            <div class="format-hint">WebP: ~30% menor que JPEG com mesma qualidade. Compatível com Shopify e todos os navegadores.</div>
+        </div>
+
         <!-- Bot&atilde;o -->
         <button class="btn-traduzir" id="btnTraduzir" onclick="traduzir()" disabled>
             Traduzir Imagem
@@ -893,6 +941,22 @@
                 <div class="instrucoes-field">
                     <textarea id="subInstrucoes" placeholder="Ex: O produto &eacute; um rel&oacute;gio. Manter o mesmo encaixe no pulso. Preservar tatuagens vis&iacute;veis."></textarea>
                 </div>
+            </div>
+
+            <!-- Formato de saída -->
+            <div class="card">
+                <h2>Formato de saída</h2>
+                <div class="format-toggle" id="formatToggle2">
+                    <label class="active" data-format="webp" onclick="setFormat('formatToggle2', 'webp')">
+                        <input type="radio" name="formato2" value="webp" checked>
+                        🖼️ WebP
+                    </label>
+                    <label data-format="jpeg" onclick="setFormat('formatToggle2', 'jpeg')">
+                        <input type="radio" name="formato2" value="jpeg">
+                        📷 JPEG
+                    </label>
+                </div>
+                <div class="format-hint">WebP: ~30% menor que JPEG com mesma qualidade.</div>
             </div>
 
             <!-- Bot&atilde;o -->
@@ -1053,6 +1117,22 @@
                     <div class="marca-hint">Aplica nas imagens e no texto da descrição</div>
                 </div>
 
+                <!-- Formato de saída CSV -->
+                <div class="card">
+                    <h2>Formato de saída</h2>
+                    <div class="format-toggle" id="formatToggle3">
+                        <label class="active" data-format="webp" onclick="setFormat('formatToggle3', 'webp')">
+                            <input type="radio" name="formato3" value="webp" checked>
+                            🖼️ WebP
+                        </label>
+                        <label data-format="jpeg" onclick="setFormat('formatToggle3', 'jpeg')">
+                            <input type="radio" name="formato3" value="jpeg">
+                            📷 JPEG
+                        </label>
+                    </div>
+                    <div class="format-hint">WebP: ~30% menor que JPEG com mesma qualidade. Compatível com Shopify.</div>
+                </div>
+
                 <button class="btn-csv" id="btnTraduzirCSV" onclick="iniciarTraducaoCSV()" disabled>
                     Traduzir Selecionadas
                 </button>
@@ -1089,6 +1169,19 @@
     <script>
         const FLAGS = {en:'🇬🇧', es:'🇪🇸', fr:'🇫🇷', it:'🇮🇹', de:'🇩🇪', nl:'🇳🇱'};
         let selectedFiles = [];
+
+        // ─── Format Toggle ───
+        function setFormat(toggleId, format) {
+            const toggle = document.getElementById(toggleId);
+            toggle.querySelectorAll('label').forEach(l => {
+                l.classList.toggle('active', l.dataset.format === format);
+                l.querySelector('input').checked = l.dataset.format === format;
+            });
+        }
+        function getFormat(toggleId) {
+            const active = document.getElementById(toggleId).querySelector('label.active');
+            return active ? active.dataset.format : 'webp';
+        }
 
         // ─── Upload (múltiplas imagens) ───
         const uploadArea = document.getElementById('uploadArea');
@@ -1204,11 +1297,14 @@
             const marcaDe = document.getElementById('marcaDe').value.trim();
             const marcaPara = document.getElementById('marcaPara').value.trim();
 
+            const formato = getFormat('formatToggle1');
+
             const formData = new FormData();
             selectedFiles.forEach(f => formData.append('imagens', f));
             idiomas.forEach(l => formData.append('idiomas', l));
             formData.append('marca_de', marcaDe);
             formData.append('marca_para', marcaPara);
+            formData.append('formato', formato);
 
             // UI: loading
             document.getElementById('btnTraduzir').disabled = true;
@@ -1274,7 +1370,7 @@
                                         <div class="resultado-lang">
                                             <span class="flag">${FLAGS[r.idioma]}</span>${r.idioma_nome}
                                         </div>
-                                        <div class="resultado-size">${r.tamanho_kb} KB · JPG</div>
+                                        <div class="resultado-size">${r.tamanho_kb} KB · ${r.formato || 'JPG'}</div>
                                     </div>
                                     <a class="btn-download" href="${r.download_url}" download>
                                         ⬇ Download
@@ -1342,10 +1438,12 @@
         }
 
         async function substituir() {
+            const formato = getFormat('formatToggle2');
             const formData = new FormData();
             formData.append('imagem_cena', subFileA);
             formData.append('imagem_produto', subFileB);
             formData.append('instrucoes', document.getElementById('subInstrucoes').value.trim());
+            formData.append('formato', formato);
 
             document.getElementById('btnSubstituir').disabled = true;
             document.getElementById('subLoading').classList.add('visible');
@@ -1362,7 +1460,8 @@
 
                 document.getElementById('subResultImg').src = data.preview;
                 document.getElementById('subDownloadBtn').href = data.download_url;
-                document.getElementById('subResultSize').textContent = data.tamanho_kb + ' KB';
+                document.getElementById('subResultSize').textContent = data.tamanho_kb + ' KB · ' + (data.formato || 'JPG');
+                document.getElementById('subDownloadBtn').textContent = '⬇ Download ' + (data.formato || 'JPG');
                 document.getElementById('subResultado').classList.add('visible');
             } catch (err) {
                 alert('Erro: ' + err.message);
@@ -1585,6 +1684,7 @@
             document.getElementById('csvProgressPercent').textContent = '0%';
             document.getElementById('csvProgressLabel').textContent = 'Iniciando...';
 
+            const formato = getFormat('formatToggle3');
             const params = new URLSearchParams({
                 job_id: csvJobId,
                 images: imgs.length > 0 ? imgs.join(',') : 'none',
@@ -1592,6 +1692,7 @@
                 marca_de: marcaDe,
                 marca_para: marcaPara,
                 traduzir_texto: traduzirTexto ? 'true' : 'false',
+                formato: formato,
             });
 
             const source = new EventSource(`/csv/traduzir/stream?${params}`);

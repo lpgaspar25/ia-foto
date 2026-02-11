@@ -97,12 +97,16 @@ def get_client() -> OpenAI:
     return OpenAI(api_key=api_key)
 
 
-def converter_para_jpg(imagem_bytes: bytes) -> bytes:
+def converter_imagem(imagem_bytes: bytes, formato: str = "webp") -> bytes:
+    """Converte imagem para o formato escolhido (webp ou jpeg)."""
     img = Image.open(io.BytesIO(imagem_bytes))
     if img.mode in ("RGBA", "P"):
         img = img.convert("RGB")
     buffer = io.BytesIO()
-    img.save(buffer, format="JPEG", quality=85, optimize=True, progressive=True, subsampling=0)
+    if formato == "webp":
+        img.save(buffer, format="WebP", quality=85, method=6)
+    else:
+        img.save(buffer, format="JPEG", quality=85, optimize=True, progressive=True, subsampling=0)
     return buffer.getvalue()
 
 
@@ -410,6 +414,7 @@ def traduzir():
     idiomas_selecionados = request.form.getlist("idiomas")
     marca_de = request.form.get("marca_de", "").strip()
     marca_para = request.form.get("marca_para", "").strip()
+    formato_saida = request.form.get("formato", "webp")  # "webp" ou "jpeg"
 
     if not idiomas_selecionados:
         return jsonify({"erro": "Selecione pelo menos um idioma"}), 400
@@ -443,22 +448,25 @@ def traduzir():
             )
 
             if resultado:
-                resultado_jpg = converter_para_jpg(resultado)
-                nome_saida = f"{nome_base}_{codigo}.jpg"
+                resultado_conv = converter_imagem(resultado, formato_saida)
+                ext_saida = "webp" if formato_saida == "webp" else "jpg"
+                mime_saida = "image/webp" if formato_saida == "webp" else "image/jpeg"
+                nome_saida = f"{nome_base}_{codigo}.{ext_saida}"
                 caminho_saida = job_dir / nome_saida
 
                 with open(caminho_saida, "wb") as f:
-                    f.write(resultado_jpg)
+                    f.write(resultado_conv)
 
-                preview_b64 = base64.standard_b64encode(resultado_jpg).decode("utf-8")
+                preview_b64 = base64.standard_b64encode(resultado_conv).decode("utf-8")
 
                 resultados.append({
                     "idioma": codigo,
                     "idioma_nome": nome_idioma,
                     "imagem_original": arquivo.filename,
                     "arquivo": nome_saida,
-                    "tamanho_kb": round(len(resultado_jpg) / 1024),
-                    "preview": f"data:image/jpeg;base64,{preview_b64}",
+                    "formato": formato_saida.upper(),
+                    "tamanho_kb": round(len(resultado_conv) / 1024),
+                    "preview": f"data:{mime_saida};base64,{preview_b64}",
                     "download_url": f"/download/{job_id}/{nome_saida}",
                 })
             else:
@@ -629,6 +637,7 @@ def substituir():
         return jsonify({"erro": "Selecione ambas as imagens"}), 400
 
     instrucoes_extras = request.form.get("instrucoes", "").strip()
+    formato_saida = request.form.get("formato", "webp")
 
     bytes_cena = arquivo_cena.read()
     bytes_produto = arquivo_produto.read()
@@ -643,20 +652,23 @@ def substituir():
         return jsonify({"erro": str(e)}), 500
 
     if resultado:
-        resultado_jpg = converter_para_jpg(resultado)
-        nome_saida = f"substituido_{job_id}.jpg"
+        resultado_conv = converter_imagem(resultado, formato_saida)
+        ext_saida = "webp" if formato_saida == "webp" else "jpg"
+        mime_saida = "image/webp" if formato_saida == "webp" else "image/jpeg"
+        nome_saida = f"substituido_{job_id}.{ext_saida}"
         caminho_saida = job_dir / nome_saida
 
         with open(caminho_saida, "wb") as f:
-            f.write(resultado_jpg)
+            f.write(resultado_conv)
 
-        preview_b64 = base64.standard_b64encode(resultado_jpg).decode("utf-8")
+        preview_b64 = base64.standard_b64encode(resultado_conv).decode("utf-8")
 
         return jsonify({
             "job_id": job_id,
-            "preview": f"data:image/jpeg;base64,{preview_b64}",
+            "preview": f"data:{mime_saida};base64,{preview_b64}",
             "download_url": f"/download/{job_id}/{nome_saida}",
-            "tamanho_kb": round(len(resultado_jpg) / 1024),
+            "tamanho_kb": round(len(resultado_conv) / 1024),
+            "formato": formato_saida.upper(),
         })
     else:
         return jsonify({"erro": "Falha na substituição. Tente novamente."}), 500
@@ -800,6 +812,7 @@ def csv_traduzir_stream():
     marca_de = request.args.get("marca_de", "")
     marca_para = request.args.get("marca_para", "")
     traduzir_texto = request.args.get("traduzir_texto", "false") == "true"
+    formato_saida = request.args.get("formato", "webp")
 
     if not job_id or not idiomas_str:
         def error_gen():
@@ -878,21 +891,23 @@ def csv_traduzir_stream():
                     resultado = traduzir_imagem(client, img_bytes, mime, nome_idioma, marca_de, marca_para)
 
                     if resultado:
-                        resultado_jpg = converter_para_jpg(resultado)
+                        resultado_conv = converter_imagem(resultado, formato_saida)
+                        ext_saida = "webp" if formato_saida == "webp" else "jpg"
+                        mime_saida = "image/webp" if formato_saida == "webp" else "image/jpeg"
                         nome_base = Path(img_filename).stem
-                        nome_saida = f"{handle}_{nome_base}_{lang}.jpg"
+                        nome_saida = f"{handle}_{nome_base}_{lang}.{ext_saida}"
 
                         lang_dir = job_dir / lang
                         lang_dir.mkdir(exist_ok=True)
                         caminho_saida = lang_dir / nome_saida
 
                         with open(caminho_saida, "wb") as fout:
-                            fout.write(resultado_jpg)
+                            fout.write(resultado_conv)
 
                         mappings[lang][img_info["url"]] = f"{lang}/{nome_saida}"
 
                         try:
-                            thumb = Image.open(io.BytesIO(resultado_jpg))
+                            thumb = Image.open(io.BytesIO(resultado_conv))
                             thumb.thumbnail((150, 150))
                             buf = io.BytesIO()
                             thumb.save(buf, format="JPEG", quality=75)
