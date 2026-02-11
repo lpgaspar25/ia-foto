@@ -21,6 +21,9 @@ from pathlib import Path
 from typing import Optional
 
 import logging
+import queue
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests as http_requests
 from bs4 import BeautifulSoup
 from flask import Flask, render_template, request, jsonify, send_file, Response, stream_with_context
@@ -830,6 +833,9 @@ def csv_traduzir_stream():
     selected_indices = [int(x) for x in selected.split(",") if x.strip().isdigit()] if selected and selected != "none" else []
     nome_idioma = IDIOMAS.get(lang, lang)
 
+    # Número de traduções paralelas (3 é conservador e evita rate limit)
+    MAX_PARALLEL = 3
+
     def generate():
         try:
             with open(state_path) as f:
@@ -857,65 +863,104 @@ def csv_traduzir_stream():
             mapping = {}  # {original_url: new_relative_path}
             text_trans = {}  # {handle: {title, body_html, ...}}
 
-            # ── ETAPA 1: Traduzir imagens ──
+            # ── ETAPA 1: Traduzir imagens em PARALELO ──
+            # Preparar tarefas
+            img_tasks_list = []
             for img_idx in selected_indices:
                 if img_idx >= len(images_info):
                     continue
-
                 img_info = images_info[img_idx]
                 img_filename = img_info.get("filename", f"img_{img_idx}")
-
                 original_path = job_dir / f"original_{img_idx}_{img_filename}"
                 if not original_path.exists():
                     current += 1
                     yield f"data: {json.dumps({'type': 'error', 'message': f'Imagem não encontrada: {img_filename}', 'current': current, 'total': total})}\n\n"
                     continue
+                img_tasks_list.append((img_idx, img_info, img_filename, original_path))
 
-                with open(original_path, "rb") as f:
-                    img_bytes = f.read()
+            if img_tasks_list:
+                yield f"data: {json.dumps({'type': 'progress', 'current': current, 'total': total, 'image': f'Traduzindo {len(img_tasks_list)} imagens em paralelo...', 'language': nome_idioma})}\n\n"
 
-                ext = Path(img_filename).suffix.lower()
-                mime = mime_types.get(ext, "image/png")
-                handle = img_info.get("handle", "product")
+                # Fila thread-safe para receber resultados
+                result_queue = queue.Queue()
+                lang_dir = job_dir / lang
+                lang_dir.mkdir(exist_ok=True)
 
-                current += 1
-
-                yield f"data: {json.dumps({'type': 'progress', 'current': current, 'total': total, 'image': img_filename, 'language': nome_idioma})}\n\n"
-
-                # Heartbeat antes da chamada longa
-                yield ": keepalive\n\n"
-
-                resultado = traduzir_imagem(client, img_bytes, mime, nome_idioma, marca_de, marca_para)
-
-                if resultado:
-                    resultado_conv = converter_imagem(resultado, formato_saida)
-                    ext_saida = "webp" if formato_saida == "webp" else "jpg"
-                    nome_base = Path(img_filename).stem
-                    nome_saida = f"{handle}_{nome_base}_{lang}.{ext_saida}"
-
-                    lang_dir = job_dir / lang
-                    lang_dir.mkdir(exist_ok=True)
-                    caminho_saida = lang_dir / nome_saida
-
-                    with open(caminho_saida, "wb") as fout:
-                        fout.write(resultado_conv)
-
-                    mapping[img_info["url"]] = f"{lang}/{nome_saida}"
-
+                def _translate_image(task):
+                    """Worker thread: traduz 1 imagem e coloca resultado na fila."""
+                    img_idx, img_info, img_filename, original_path = task
                     try:
-                        thumb = Image.open(io.BytesIO(resultado_conv))
-                        thumb.thumbnail((150, 150))
-                        buf = io.BytesIO()
-                        thumb.save(buf, format="JPEG", quality=75)
-                        preview_b64 = base64.standard_b64encode(buf.getvalue()).decode("utf-8")
-                    except Exception:
-                        preview_b64 = ""
+                        with open(original_path, "rb") as f:
+                            img_bytes = f.read()
+                        ext = Path(img_filename).suffix.lower()
+                        mime = mime_types.get(ext, "image/png")
+                        handle = img_info.get("handle", "product")
 
-                    yield f"data: {json.dumps({'type': 'image_done', 'current': current, 'total': total, 'image': img_filename, 'language': nome_idioma, 'lang_code': lang, 'output_file': nome_saida, 'preview': f'data:image/jpeg;base64,{preview_b64}' if preview_b64 else ''})}\n\n"
-                else:
-                    yield f"data: {json.dumps({'type': 'error', 'message': f'Falha ao traduzir {img_filename} → {nome_idioma}', 'current': current, 'total': total})}\n\n"
+                        resultado = traduzir_imagem(client, img_bytes, mime, nome_idioma, marca_de, marca_para)
 
-                time.sleep(2)
+                        if resultado:
+                            resultado_conv = converter_imagem(resultado, formato_saida)
+                            ext_saida = "webp" if formato_saida == "webp" else "jpg"
+                            nome_base = Path(img_filename).stem
+                            nome_saida = f"{handle}_{nome_base}_{lang}.{ext_saida}"
+                            caminho_saida = lang_dir / nome_saida
+
+                            with open(caminho_saida, "wb") as fout:
+                                fout.write(resultado_conv)
+
+                            # Thumbnail
+                            try:
+                                thumb = Image.open(io.BytesIO(resultado_conv))
+                                thumb.thumbnail((150, 150))
+                                buf = io.BytesIO()
+                                thumb.save(buf, format="JPEG", quality=75)
+                                preview_b64 = base64.standard_b64encode(buf.getvalue()).decode("utf-8")
+                            except Exception:
+                                preview_b64 = ""
+
+                            result_queue.put({
+                                "ok": True,
+                                "img_filename": img_filename,
+                                "url": img_info["url"],
+                                "nome_saida": nome_saida,
+                                "preview_b64": preview_b64,
+                            })
+                        else:
+                            result_queue.put({
+                                "ok": False,
+                                "img_filename": img_filename,
+                            })
+                    except Exception as e:
+                        logger.error(f"[CSV] Thread erro {img_filename}: {e}")
+                        result_queue.put({
+                            "ok": False,
+                            "img_filename": img_filename,
+                        })
+
+                # Lançar threads em paralelo
+                with ThreadPoolExecutor(max_workers=MAX_PARALLEL) as executor:
+                    futures = [executor.submit(_translate_image, task) for task in img_tasks_list]
+
+                    # Coletar resultados à medida que completam
+                    done_count = 0
+                    total_img = len(img_tasks_list)
+                    while done_count < total_img:
+                        # Heartbeat enquanto espera
+                        try:
+                            result = result_queue.get(timeout=5)
+                        except queue.Empty:
+                            yield ": keepalive\n\n"
+                            continue
+
+                        done_count += 1
+                        current += 1
+
+                        if result["ok"]:
+                            mapping[result["url"]] = f"{lang}/{result['nome_saida']}"
+                            preview = f"data:image/jpeg;base64,{result['preview_b64']}" if result["preview_b64"] else ""
+                            yield f"data: {json.dumps({'type': 'image_done', 'current': current, 'total': total, 'image': result['img_filename'], 'language': nome_idioma, 'lang_code': lang, 'output_file': result['nome_saida'], 'preview': preview})}\n\n"
+                        else:
+                            yield f"data: {json.dumps({'type': 'error', 'message': f'Falha ao traduzir {result[\"img_filename\"]} → {nome_idioma}', 'current': current, 'total': total})}\n\n"
 
             # ── ETAPA 2: Traduzir texto dos produtos ──
             if traduzir_texto and unique_handles:
@@ -940,8 +985,6 @@ def csv_traduzir_stream():
                     current += 1
 
                     yield f"data: {json.dumps({'type': 'text_progress', 'current': current, 'total': total, 'handle': handle, 'language': nome_idioma})}\n\n"
-
-                    # Heartbeat antes da chamada longa
                     yield ": keepalive\n\n"
 
                     result = traduzir_texto_produto(
@@ -961,8 +1004,6 @@ def csv_traduzir_stream():
                         yield f"data: {json.dumps({'type': 'text_done', 'current': current, 'total': total, 'handle': handle, 'language': nome_idioma})}\n\n"
                     else:
                         yield f"data: {json.dumps({'type': 'error', 'message': f'Falha ao traduzir texto de {handle} → {nome_idioma}', 'current': current, 'total': total})}\n\n"
-
-                    time.sleep(1)
 
             # ── ETAPA 3: Gerar CSV para este idioma ──
             yield f"data: {json.dumps({'type': 'progress', 'current': total, 'total': total, 'image': f'Gerando CSV {lang.upper()}...', 'language': nome_idioma})}\n\n"
