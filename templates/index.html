@@ -1143,6 +1143,12 @@
             <div class="csv-phase" id="csvPhase3">
                 <div class="card">
                     <h2>Tradução em andamento</h2>
+
+                    <!-- Progresso global (idiomas) -->
+                    <div id="csvLangProgress" style="margin-bottom:1rem; padding:0.6rem 0.8rem; background:var(--bg-input); border-radius:var(--radius-sm);">
+                        <span id="csvLangLabel" style="font-size:0.9rem; font-weight:600; color:var(--accent3-hover);"></span>
+                    </div>
+
                     <div class="csv-progress-text">
                         <span id="csvProgressLabel">Preparando...</span>
                         <span class="csv-progress-percent" id="csvProgressPercent">0%</span>
@@ -1665,13 +1671,16 @@
             }
         }
 
-        // Fase 2→3: Traduzir via SSE
+        // Fase 2→3: Traduzir via SSE — um idioma por vez (sequencial)
+        const LANG_NAMES = {en:'English', es:'Spanish', fr:'French', it:'Italian', de:'German', nl:'Dutch'};
+
         function iniciarTraducaoCSV() {
             const imgs = getSelectedCsvImages();
             const langs = getSelectedCsvIdiomas();
             const marcaDe = document.getElementById('csvMarcaDe').value.trim();
             const marcaPara = document.getElementById('csvMarcaPara').value.trim();
             const traduzirTexto = document.getElementById('csvTraduzirTexto').checked;
+            const formato = getFormat('formatToggle3');
 
             if (langs.length === 0 || (imgs.length === 0 && !traduzirTexto)) return;
 
@@ -1684,90 +1693,117 @@
             document.getElementById('csvProgressPercent').textContent = '0%';
             document.getElementById('csvProgressLabel').textContent = 'Iniciando...';
 
-            const formato = getFormat('formatToggle3');
-            const params = new URLSearchParams({
-                job_id: csvJobId,
-                images: imgs.length > 0 ? imgs.join(',') : 'none',
-                idiomas: langs.join(','),
-                marca_de: marcaDe,
-                marca_para: marcaPara,
-                traduzir_texto: traduzirTexto ? 'true' : 'false',
-                formato: formato,
-            });
+            // Loop sequencial de idiomas
+            let langIndex = 0;
 
-            const source = new EventSource(`/csv/traduzir/stream?${params}`);
+            function traduzirProximoIdioma() {
+                if (langIndex >= langs.length) {
+                    // Todos os idiomas concluídos — baixar ZIP final
+                    document.getElementById('csvLangLabel').textContent =
+                        `Todos os ${langs.length} idioma(s) concluídos!`;
+                    document.getElementById('csvProgressFill').style.width = '100%';
+                    document.getElementById('csvProgressPercent').textContent = '100%';
+                    document.getElementById('csvProgressLabel').textContent = 'Gerando ZIP final...';
 
-            source.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-
-                if (data.type === 'progress') {
-                    const pct = Math.round((data.current / data.total) * 100);
-                    document.getElementById('csvProgressFill').style.width = pct + '%';
-                    document.getElementById('csvProgressPercent').textContent = pct + '%';
-                    document.getElementById('csvProgressLabel').textContent =
-                        `Traduzindo imagem ${data.image} → ${data.language} (${data.current}/${data.total})`;
+                    document.getElementById('csvDownloadBtn').href = `/csv/download/${csvJobId}`;
+                    document.getElementById('csvDownloadArea').style.display = 'block';
+                    document.getElementById('csvProgressLabel').textContent = 'Tradução concluída!';
+                    return;
                 }
 
-                if (data.type === 'image_done') {
-                    const pct = Math.round((data.current / data.total) * 100);
-                    document.getElementById('csvProgressFill').style.width = pct + '%';
-                    document.getElementById('csvProgressPercent').textContent = pct + '%';
+                const lang = langs[langIndex];
+                const langName = LANG_NAMES[lang] || lang;
+                const langFlag = FLAGS[lang] || '';
 
-                    if (data.preview) {
-                        const grid = document.getElementById('csvResultGrid');
-                        grid.innerHTML += `
-                            <div class="csv-result-item">
-                                <img src="${data.preview}" alt="${data.output_file}">
-                                <div class="label">${FLAGS[data.lang_code] || ''} ${data.output_file}</div>
-                            </div>
-                        `;
-                    }
-                }
+                document.getElementById('csvLangLabel').textContent =
+                    `${langFlag} Idioma ${langIndex + 1}/${langs.length}: ${langName}`;
+                document.getElementById('csvProgressFill').style.width = '0%';
+                document.getElementById('csvProgressPercent').textContent = '0%';
+                document.getElementById('csvProgressLabel').textContent = `Iniciando ${langName}...`;
 
-                if (data.type === 'text_progress') {
-                    const pct = Math.round((data.current / data.total) * 100);
-                    document.getElementById('csvProgressFill').style.width = pct + '%';
-                    document.getElementById('csvProgressPercent').textContent = pct + '%';
-                    document.getElementById('csvProgressLabel').textContent =
-                        `Traduzindo texto "${data.handle}" → ${data.language} (${data.current}/${data.total})`;
-                }
+                const params = new URLSearchParams({
+                    job_id: csvJobId,
+                    images: imgs.length > 0 ? imgs.join(',') : 'none',
+                    lang: lang,
+                    marca_de: marcaDe,
+                    marca_para: marcaPara,
+                    traduzir_texto: traduzirTexto ? 'true' : 'false',
+                    formato: formato,
+                });
 
-                if (data.type === 'text_done') {
-                    const pct = Math.round((data.current / data.total) * 100);
-                    document.getElementById('csvProgressFill').style.width = pct + '%';
-                    document.getElementById('csvProgressPercent').textContent = pct + '%';
-                    // Adicionar indicador visual de texto traduzido
-                    const grid = document.getElementById('csvResultGrid');
-                    grid.innerHTML += `
-                        <div class="csv-result-item" style="display:flex; align-items:center; justify-content:center; aspect-ratio:auto; padding:0.8rem;">
-                            <div class="label" style="padding:0;">📝 ${data.handle} → ${data.language}</div>
-                        </div>
-                    `;
-                }
+                const source = new EventSource(`/csv/traduzir/stream?${params}`);
 
-                if (data.type === 'error') {
-                    console.error('CSV tradução erro:', data.message);
-                    if (data.current && data.total) {
+                source.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+
+                    if (data.type === 'progress') {
                         const pct = Math.round((data.current / data.total) * 100);
                         document.getElementById('csvProgressFill').style.width = pct + '%';
                         document.getElementById('csvProgressPercent').textContent = pct + '%';
+                        document.getElementById('csvProgressLabel').textContent =
+                            `${langFlag} ${data.image} → ${data.language} (${data.current}/${data.total})`;
                     }
-                }
 
-                if (data.type === 'complete') {
+                    if (data.type === 'image_done') {
+                        const pct = Math.round((data.current / data.total) * 100);
+                        document.getElementById('csvProgressFill').style.width = pct + '%';
+                        document.getElementById('csvProgressPercent').textContent = pct + '%';
+
+                        if (data.preview) {
+                            document.getElementById('csvResultGrid').innerHTML += `
+                                <div class="csv-result-item">
+                                    <img src="${data.preview}" alt="${data.output_file}">
+                                    <div class="label">${langFlag} ${data.output_file}</div>
+                                </div>
+                            `;
+                        }
+                    }
+
+                    if (data.type === 'text_progress') {
+                        const pct = Math.round((data.current / data.total) * 100);
+                        document.getElementById('csvProgressFill').style.width = pct + '%';
+                        document.getElementById('csvProgressPercent').textContent = pct + '%';
+                        document.getElementById('csvProgressLabel').textContent =
+                            `${langFlag} Traduzindo texto "${data.handle}" (${data.current}/${data.total})`;
+                    }
+
+                    if (data.type === 'text_done') {
+                        const pct = Math.round((data.current / data.total) * 100);
+                        document.getElementById('csvProgressFill').style.width = pct + '%';
+                        document.getElementById('csvProgressPercent').textContent = pct + '%';
+                        document.getElementById('csvResultGrid').innerHTML += `
+                            <div class="csv-result-item" style="display:flex; align-items:center; justify-content:center; aspect-ratio:auto; padding:0.8rem;">
+                                <div class="label" style="padding:0;">${langFlag} 📝 ${data.handle}</div>
+                            </div>
+                        `;
+                    }
+
+                    if (data.type === 'error') {
+                        console.error('CSV tradução erro:', data.message);
+                        if (data.current && data.total) {
+                            const pct = Math.round((data.current / data.total) * 100);
+                            document.getElementById('csvProgressFill').style.width = pct + '%';
+                            document.getElementById('csvProgressPercent').textContent = pct + '%';
+                        }
+                    }
+
+                    if (data.type === 'complete') {
+                        source.close();
+                        // Próximo idioma
+                        langIndex++;
+                        traduzirProximoIdioma();
+                    }
+                };
+
+                source.onerror = () => {
                     source.close();
-                    document.getElementById('csvProgressFill').style.width = '100%';
-                    document.getElementById('csvProgressPercent').textContent = '100%';
-                    document.getElementById('csvProgressLabel').textContent = 'Tradução concluída!';
-                    document.getElementById('csvDownloadBtn').href = data.download_url;
-                    document.getElementById('csvDownloadArea').style.display = 'block';
-                }
-            };
+                    document.getElementById('csvProgressLabel').textContent =
+                        `Erro na conexão (${langName}). Tente novamente.`;
+                };
+            }
 
-            source.onerror = () => {
-                source.close();
-                document.getElementById('csvProgressLabel').textContent = 'Erro na conexão SSE. Tente novamente.';
-            };
+            // Iniciar com o primeiro idioma
+            traduzirProximoIdioma();
         }
 
         function novaAnaliseCSV() {

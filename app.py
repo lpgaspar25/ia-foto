@@ -805,16 +805,16 @@ def csv_analisar():
 
 @app.route("/csv/traduzir/stream")
 def csv_traduzir_stream():
-    """SSE endpoint para traduzir imagens e/ou texto do CSV."""
+    """SSE endpoint para traduzir imagens e/ou texto do CSV — 1 idioma por vez."""
     job_id = request.args.get("job_id", "")
     selected = request.args.get("images", "")  # "0,2,5" ou "none"
-    idiomas_str = request.args.get("idiomas", "")  # "en,es"
+    lang = request.args.get("lang", "")  # "en" (1 idioma apenas)
     marca_de = request.args.get("marca_de", "")
     marca_para = request.args.get("marca_para", "")
     traduzir_texto = request.args.get("traduzir_texto", "false") == "true"
     formato_saida = request.args.get("formato", "webp")
 
-    if not job_id or not idiomas_str:
+    if not job_id or not lang:
         def error_gen():
             yield f"data: {json.dumps({'type': 'error', 'message': 'Parâmetros inválidos'})}\n\n"
         return Response(error_gen(), mimetype="text/event-stream")
@@ -828,7 +828,7 @@ def csv_traduzir_stream():
         return Response(error_gen(), mimetype="text/event-stream")
 
     selected_indices = [int(x) for x in selected.split(",") if x.strip().isdigit()] if selected and selected != "none" else []
-    idiomas_list = [x.strip() for x in idiomas_str.split(",") if x.strip()]
+    nome_idioma = IDIOMAS.get(lang, lang)
 
     def generate():
         try:
@@ -839,9 +839,8 @@ def csv_traduzir_stream():
             images_info = state["images"]
             client = get_client()
 
-            # Calcular total de tarefas
-            img_tasks = len(selected_indices) * len(idiomas_list)
-            # Produtos únicos para tradução de texto
+            # Calcular total de tarefas para este idioma
+            img_tasks = len(selected_indices)
             unique_handles = []
             if traduzir_texto:
                 seen = set()
@@ -850,15 +849,13 @@ def csv_traduzir_stream():
                     if h and h not in seen and (r.get("Title") or r.get("Body (HTML)")):
                         seen.add(h)
                         unique_handles.append(h)
-            text_tasks = len(unique_handles) * len(idiomas_list) if traduzir_texto else 0
+            text_tasks = len(unique_handles) if traduzir_texto else 0
             total = img_tasks + text_tasks
             current = 0
             mime_types = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 
-            # mapping: {lang: {original_url: new_relative_path}}
-            mappings = {lang: {} for lang in idiomas_list}
-            # text_translations: {lang: {handle: {title, body_html, ...}}}
-            text_trans = {lang: {} for lang in idiomas_list}
+            mapping = {}  # {original_url: new_relative_path}
+            text_trans = {}  # {handle: {title, body_html, ...}}
 
             # ── ETAPA 1: Traduzir imagens ──
             for img_idx in selected_indices:
@@ -870,9 +867,8 @@ def csv_traduzir_stream():
 
                 original_path = job_dir / f"original_{img_idx}_{img_filename}"
                 if not original_path.exists():
-                    for lang in idiomas_list:
-                        current += 1
-                        yield f"data: {json.dumps({'type': 'error', 'message': f'Imagem não encontrada: {img_filename}', 'current': current, 'total': total})}\n\n"
+                    current += 1
+                    yield f"data: {json.dumps({'type': 'error', 'message': f'Imagem não encontrada: {img_filename}', 'current': current, 'total': total})}\n\n"
                     continue
 
                 with open(original_path, "rb") as f:
@@ -882,48 +878,47 @@ def csv_traduzir_stream():
                 mime = mime_types.get(ext, "image/png")
                 handle = img_info.get("handle", "product")
 
-                for lang in idiomas_list:
-                    current += 1
-                    nome_idioma = IDIOMAS.get(lang, lang)
+                current += 1
 
-                    yield f"data: {json.dumps({'type': 'progress', 'current': current, 'total': total, 'image': img_filename, 'language': nome_idioma})}\n\n"
+                yield f"data: {json.dumps({'type': 'progress', 'current': current, 'total': total, 'image': img_filename, 'language': nome_idioma})}\n\n"
 
-                    resultado = traduzir_imagem(client, img_bytes, mime, nome_idioma, marca_de, marca_para)
+                # Heartbeat antes da chamada longa
+                yield ": keepalive\n\n"
 
-                    if resultado:
-                        resultado_conv = converter_imagem(resultado, formato_saida)
-                        ext_saida = "webp" if formato_saida == "webp" else "jpg"
-                        mime_saida = "image/webp" if formato_saida == "webp" else "image/jpeg"
-                        nome_base = Path(img_filename).stem
-                        nome_saida = f"{handle}_{nome_base}_{lang}.{ext_saida}"
+                resultado = traduzir_imagem(client, img_bytes, mime, nome_idioma, marca_de, marca_para)
 
-                        lang_dir = job_dir / lang
-                        lang_dir.mkdir(exist_ok=True)
-                        caminho_saida = lang_dir / nome_saida
+                if resultado:
+                    resultado_conv = converter_imagem(resultado, formato_saida)
+                    ext_saida = "webp" if formato_saida == "webp" else "jpg"
+                    nome_base = Path(img_filename).stem
+                    nome_saida = f"{handle}_{nome_base}_{lang}.{ext_saida}"
 
-                        with open(caminho_saida, "wb") as fout:
-                            fout.write(resultado_conv)
+                    lang_dir = job_dir / lang
+                    lang_dir.mkdir(exist_ok=True)
+                    caminho_saida = lang_dir / nome_saida
 
-                        mappings[lang][img_info["url"]] = f"{lang}/{nome_saida}"
+                    with open(caminho_saida, "wb") as fout:
+                        fout.write(resultado_conv)
 
-                        try:
-                            thumb = Image.open(io.BytesIO(resultado_conv))
-                            thumb.thumbnail((150, 150))
-                            buf = io.BytesIO()
-                            thumb.save(buf, format="JPEG", quality=75)
-                            preview_b64 = base64.standard_b64encode(buf.getvalue()).decode("utf-8")
-                        except Exception:
-                            preview_b64 = ""
+                    mapping[img_info["url"]] = f"{lang}/{nome_saida}"
 
-                        yield f"data: {json.dumps({'type': 'image_done', 'current': current, 'total': total, 'image': img_filename, 'language': nome_idioma, 'lang_code': lang, 'output_file': nome_saida, 'preview': f'data:image/jpeg;base64,{preview_b64}' if preview_b64 else ''})}\n\n"
-                    else:
-                        yield f"data: {json.dumps({'type': 'error', 'message': f'Falha ao traduzir {img_filename} → {nome_idioma}', 'current': current, 'total': total})}\n\n"
+                    try:
+                        thumb = Image.open(io.BytesIO(resultado_conv))
+                        thumb.thumbnail((150, 150))
+                        buf = io.BytesIO()
+                        thumb.save(buf, format="JPEG", quality=75)
+                        preview_b64 = base64.standard_b64encode(buf.getvalue()).decode("utf-8")
+                    except Exception:
+                        preview_b64 = ""
 
-                    time.sleep(2)
+                    yield f"data: {json.dumps({'type': 'image_done', 'current': current, 'total': total, 'image': img_filename, 'language': nome_idioma, 'lang_code': lang, 'output_file': nome_saida, 'preview': f'data:image/jpeg;base64,{preview_b64}' if preview_b64 else ''})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'type': 'error', 'message': f'Falha ao traduzir {img_filename} → {nome_idioma}', 'current': current, 'total': total})}\n\n"
+
+                time.sleep(2)
 
             # ── ETAPA 2: Traduzir texto dos produtos ──
             if traduzir_texto and unique_handles:
-                # Construir dados dos produtos (pegar da primeira row de cada handle)
                 product_data = {}
                 for r in rows:
                     h = r.get("Handle", "")
@@ -939,63 +934,53 @@ def csv_traduzir_stream():
                 for handle in unique_handles:
                     pd = product_data.get(handle, {})
                     if not pd.get("title") and not pd.get("body_html"):
-                        # Pular se não tem conteúdo para traduzir
-                        for lang in idiomas_list:
-                            current += 1
+                        current += 1
                         continue
 
-                    for lang in idiomas_list:
-                        current += 1
-                        nome_idioma = IDIOMAS.get(lang, lang)
+                    current += 1
 
-                        yield f"data: {json.dumps({'type': 'text_progress', 'current': current, 'total': total, 'handle': handle, 'language': nome_idioma})}\n\n"
+                    yield f"data: {json.dumps({'type': 'text_progress', 'current': current, 'total': total, 'handle': handle, 'language': nome_idioma})}\n\n"
 
-                        result = traduzir_texto_produto(
-                            client,
-                            title=pd.get("title", ""),
-                            body_html=pd.get("body_html", ""),
-                            seo_title=pd.get("seo_title", ""),
-                            seo_desc=pd.get("seo_description", ""),
-                            tags=pd.get("tags", ""),
-                            idioma_nome=nome_idioma,
-                            marca_de=marca_de,
-                            marca_para=marca_para,
-                        )
+                    # Heartbeat antes da chamada longa
+                    yield ": keepalive\n\n"
 
-                        if result:
-                            text_trans[lang][handle] = result
-                            yield f"data: {json.dumps({'type': 'text_done', 'current': current, 'total': total, 'handle': handle, 'language': nome_idioma})}\n\n"
-                        else:
-                            yield f"data: {json.dumps({'type': 'error', 'message': f'Falha ao traduzir texto de {handle} → {nome_idioma}', 'current': current, 'total': total})}\n\n"
+                    result = traduzir_texto_produto(
+                        client,
+                        title=pd.get("title", ""),
+                        body_html=pd.get("body_html", ""),
+                        seo_title=pd.get("seo_title", ""),
+                        seo_desc=pd.get("seo_description", ""),
+                        tags=pd.get("tags", ""),
+                        idioma_nome=nome_idioma,
+                        marca_de=marca_de,
+                        marca_para=marca_para,
+                    )
 
-                        time.sleep(1)
+                    if result:
+                        text_trans[handle] = result
+                        yield f"data: {json.dumps({'type': 'text_done', 'current': current, 'total': total, 'handle': handle, 'language': nome_idioma})}\n\n"
+                    else:
+                        yield f"data: {json.dumps({'type': 'error', 'message': f'Falha ao traduzir texto de {handle} → {nome_idioma}', 'current': current, 'total': total})}\n\n"
 
-            # ── ETAPA 3: Gerar CSVs e ZIP ──
-            yield f"data: {json.dumps({'type': 'progress', 'current': total, 'total': total, 'image': 'Gerando ZIP...', 'language': ''})}\n\n"
+                    time.sleep(1)
 
-            zip_path = job_dir / "shopify_translated.zip"
-            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                for lang in idiomas_list:
-                    lang_dir = job_dir / lang
-                    if lang_dir.exists():
-                        for img_file in lang_dir.iterdir():
-                            if img_file.is_file():
-                                zf.write(img_file, f"{lang}/{img_file.name}")
+            # ── ETAPA 3: Gerar CSV para este idioma ──
+            yield f"data: {json.dumps({'type': 'progress', 'current': total, 'total': total, 'image': f'Gerando CSV {lang.upper()}...', 'language': nome_idioma})}\n\n"
 
-                for lang in idiomas_list:
-                    has_images = bool(mappings[lang])
-                    has_text = bool(text_trans.get(lang))
-                    if has_images or has_text:
-                        csv_content = generate_translated_csv(
-                            rows, mappings[lang], lang,
-                            text_translations=text_trans.get(lang)
-                        )
-                        zf.writestr(f"{lang}/products_export_{lang}.csv", csv_content)
+            has_images = bool(mapping)
+            has_text = bool(text_trans)
+            if has_images or has_text:
+                csv_content = generate_translated_csv(
+                    rows, mapping, lang,
+                    text_translations=text_trans
+                )
+                lang_dir = job_dir / lang
+                lang_dir.mkdir(exist_ok=True)
+                csv_path = lang_dir / f"products_export_{lang}.csv"
+                with open(csv_path, "w", encoding="utf-8") as fout:
+                    fout.write(csv_content)
 
-                zf.writestr("mapping.json", json.dumps(mappings, indent=2, ensure_ascii=False))
-
-            download_url = f"/csv/download/{job_id}"
-            yield f"data: {json.dumps({'type': 'complete', 'download_url': download_url, 'total_translated': current})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete', 'lang': lang, 'total_translated': current})}\n\n"
 
         except Exception as e:
             logger.error(f"[CSV] Erro na tradução SSE: {e}")
@@ -1007,10 +992,28 @@ def csv_traduzir_stream():
 
 @app.route("/csv/download/<job_id>")
 def csv_download(job_id):
-    """Download ZIP com imagens traduzidas e CSVs."""
-    zip_path = OUTPUT_FOLDER / job_id / "shopify_translated.zip"
-    if not zip_path.exists():
-        return jsonify({"erro": "Arquivo não encontrado"}), 404
+    """Gera e baixa ZIP final com todas as pastas de idiomas processadas."""
+    job_dir = OUTPUT_FOLDER / job_id
+    if not job_dir.exists():
+        return jsonify({"erro": "Job não encontrado"}), 404
+
+    zip_path = job_dir / "shopify_translated.zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for lang_dir in sorted(job_dir.iterdir()):
+            if lang_dir.is_dir() and lang_dir.name in IDIOMAS:
+                for f in lang_dir.iterdir():
+                    if f.is_file():
+                        zf.write(f, f"{lang_dir.name}/{f.name}")
+
+        # Gerar mapping.json
+        mapping_data = {}
+        for lang_dir in sorted(job_dir.iterdir()):
+            if lang_dir.is_dir() and lang_dir.name in IDIOMAS:
+                mapping_data[lang_dir.name] = {
+                    "files": [f.name for f in lang_dir.iterdir() if f.is_file()]
+                }
+        zf.writestr("mapping.json", json.dumps(mapping_data, indent=2, ensure_ascii=False))
+
     return send_file(str(zip_path), as_attachment=True, download_name="shopify_translated.zip")
 
 
