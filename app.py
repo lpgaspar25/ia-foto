@@ -113,9 +113,27 @@ def converter_imagem(imagem_bytes: bytes, formato: str = "webp") -> bytes:
     return buffer.getvalue()
 
 
+def _resize_to_original(img_bytes: bytes, target_size: tuple) -> bytes:
+    """Redimensiona imagem traduzida para as dimensões originais (evita corte)."""
+    img = Image.open(io.BytesIO(img_bytes))
+    if img.size != target_size:
+        logger.info(f"[Resize] {img.size} → {target_size}")
+        img = img.resize(target_size, Image.LANCZOS)
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def traduzir_imagem(client: OpenAI, imagem_bytes: bytes, mime_type: str,
                      idioma_nome: str, marca_de: str = "", marca_para: str = "") -> Optional[bytes]:
     """Traduz imagem via OpenAI API."""
+
+    # Capturar dimensões originais para preservar após tradução
+    original_img = Image.open(io.BytesIO(imagem_bytes))
+    original_size = original_img.size  # (width, height)
+    logger.info(f"[Tradução] Imagem original: {original_size[0]}×{original_size[1]}")
 
     marca_instrucao = ""
     if marca_de and marca_para:
@@ -144,26 +162,26 @@ def traduzir_imagem(client: OpenAI, imagem_bytes: bytes, mime_type: str,
                     if hasattr(result, "image") and result.image:
                         img_b64 = result.image.get("b64_json") if isinstance(result.image, dict) else getattr(result.image, "b64_json", None)
                         if img_b64:
-                            return base64.standard_b64decode(img_b64)
+                            return _resize_to_original(base64.standard_b64decode(img_b64), original_size)
             if hasattr(item, "image") and item.image:
                 img_b64 = item.image.get("b64_json") if isinstance(item.image, dict) else getattr(item.image, "b64_json", None)
                 if img_b64:
-                    return base64.standard_b64decode(img_b64)
+                    return _resize_to_original(base64.standard_b64decode(img_b64), original_size)
 
         resp_dict = response.model_dump() if hasattr(response, "model_dump") else {}
         for output_item in resp_dict.get("output", []):
             if output_item.get("type") == "image_generation_call":
                 result = output_item.get("result", {})
                 if isinstance(result, dict) and "b64_json" in result:
-                    return base64.standard_b64decode(result["b64_json"])
+                    return _resize_to_original(base64.standard_b64decode(result["b64_json"]), original_size)
             for key in ("result", "content", "image"):
                 val = output_item.get(key)
                 if isinstance(val, dict) and "b64_json" in val:
-                    return base64.standard_b64decode(val["b64_json"])
+                    return _resize_to_original(base64.standard_b64decode(val["b64_json"]), original_size)
                 if isinstance(val, list):
                     for v in val:
                         if isinstance(v, dict) and "b64_json" in v:
-                            return base64.standard_b64decode(v["b64_json"])
+                            return _resize_to_original(base64.standard_b64decode(v["b64_json"]), original_size)
 
     except Exception as e:
         logger.error(f"[Tradução] Responses API falhou: {type(e).__name__}: {e}")
@@ -181,7 +199,7 @@ def traduzir_imagem(client: OpenAI, imagem_bytes: bytes, mime_type: str,
         if response.data and len(response.data) > 0:
             img_data = response.data[0]
             if hasattr(img_data, "b64_json") and img_data.b64_json:
-                return base64.standard_b64decode(img_data.b64_json)
+                return _resize_to_original(base64.standard_b64decode(img_data.b64_json), original_size)
     except Exception as e:
         logger.error(f"[Tradução] Images Edit API falhou: {type(e).__name__}: {e}")
 
