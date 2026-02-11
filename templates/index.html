@@ -1001,6 +1001,23 @@
                     </div>
                 </div>
 
+                <!-- Tradução de Texto -->
+                <div class="card">
+                    <h2>📝 Tradução de Texto</h2>
+                    <label style="display:flex; align-items:center; gap:0.6rem; cursor:pointer; padding:0.6rem 0;">
+                        <input type="checkbox" id="csvTraduzirTexto" checked style="width:18px; height:18px; accent-color:var(--accent3); cursor:pointer;"
+                               onchange="updateCsvTraduzirBtn()">
+                        <div>
+                            <div style="color:var(--text-primary); font-size:0.9rem; font-weight:500;">
+                                Traduzir descrições do produto
+                            </div>
+                            <div style="color:var(--text-muted); font-size:0.78rem; margin-top:0.15rem;">
+                                Inclui: título, especificações técnicas, descrição HTML, SEO e tags
+                            </div>
+                        </div>
+                    </label>
+                </div>
+
                 <!-- Idiomas CSV -->
                 <div class="card">
                     <h2>Idiomas</h2>
@@ -1033,6 +1050,7 @@
                             <input type="text" id="csvMarcaPara" placeholder="Ex: MULTIALPHA">
                         </div>
                     </div>
+                    <div class="marca-hint">Aplica nas imagens e no texto da descrição</div>
                 </div>
 
                 <button class="btn-csv" id="btnTraduzirCSV" onclick="iniciarTraducaoCSV()" disabled>
@@ -1435,16 +1453,31 @@
         function updateCsvTraduzirBtn() {
             const imgs = getSelectedCsvImages().length;
             const langs = getSelectedCsvIdiomas().length;
+            const traduzirTexto = document.getElementById('csvTraduzirTexto').checked;
             const btn = document.getElementById('btnTraduzirCSV');
             const est = document.getElementById('csvEstimate');
 
-            btn.disabled = !(imgs > 0 && langs > 0);
+            // Habilitar se tem idioma E (tem imagens selecionadas OU traduzir texto)
+            btn.disabled = !(langs > 0 && (imgs > 0 || traduzirTexto));
 
-            if (imgs > 0 && langs > 0) {
-                const total = imgs * langs;
-                const mins = Math.ceil(total * 20 / 60);
-                btn.textContent = `Traduzir ${imgs} imagem(ns) × ${langs} idioma(s) = ${total} traduções`;
-                est.textContent = `Estimativa: ~${mins} minuto(s) (15-30s por tradução)`;
+            if (langs > 0 && (imgs > 0 || traduzirTexto)) {
+                const imgTasks = imgs * langs;
+                // Estimar produtos únicos (usar csvImages)
+                const uniqueHandles = [...new Set(csvImages.map(i => i.handle))].length;
+                const textTasks = traduzirTexto ? uniqueHandles * langs : 0;
+                const totalTasks = imgTasks + textTasks;
+                const mins = Math.ceil((imgTasks * 20 + textTasks * 5) / 60);
+
+                let label = '';
+                if (imgs > 0 && traduzirTexto) {
+                    label = `Traduzir ${imgs} imagem(ns) + texto × ${langs} idioma(s)`;
+                } else if (imgs > 0) {
+                    label = `Traduzir ${imgs} imagem(ns) × ${langs} idioma(s)`;
+                } else {
+                    label = `Traduzir texto × ${langs} idioma(s)`;
+                }
+                btn.textContent = label;
+                est.textContent = `Estimativa: ~${mins} minuto(s) · ${totalTasks} tarefas`;
             } else {
                 btn.textContent = 'Traduzir Selecionadas';
                 est.textContent = '';
@@ -1539,8 +1572,9 @@
             const langs = getSelectedCsvIdiomas();
             const marcaDe = document.getElementById('csvMarcaDe').value.trim();
             const marcaPara = document.getElementById('csvMarcaPara').value.trim();
+            const traduzirTexto = document.getElementById('csvTraduzirTexto').checked;
 
-            if (imgs.length === 0 || langs.length === 0) return;
+            if (langs.length === 0 || (imgs.length === 0 && !traduzirTexto)) return;
 
             // Mostrar fase 3
             document.getElementById('csvPhase2').classList.remove('visible');
@@ -1553,10 +1587,11 @@
 
             const params = new URLSearchParams({
                 job_id: csvJobId,
-                images: imgs.join(','),
+                images: imgs.length > 0 ? imgs.join(',') : 'none',
                 idiomas: langs.join(','),
                 marca_de: marcaDe,
                 marca_para: marcaPara,
+                traduzir_texto: traduzirTexto ? 'true' : 'false',
             });
 
             const source = new EventSource(`/csv/traduzir/stream?${params}`);
@@ -1569,7 +1604,7 @@
                     document.getElementById('csvProgressFill').style.width = pct + '%';
                     document.getElementById('csvProgressPercent').textContent = pct + '%';
                     document.getElementById('csvProgressLabel').textContent =
-                        `Traduzindo ${data.image} → ${data.language} (${data.current}/${data.total})`;
+                        `Traduzindo imagem ${data.image} → ${data.language} (${data.current}/${data.total})`;
                 }
 
                 if (data.type === 'image_done') {
@@ -1586,6 +1621,27 @@
                             </div>
                         `;
                     }
+                }
+
+                if (data.type === 'text_progress') {
+                    const pct = Math.round((data.current / data.total) * 100);
+                    document.getElementById('csvProgressFill').style.width = pct + '%';
+                    document.getElementById('csvProgressPercent').textContent = pct + '%';
+                    document.getElementById('csvProgressLabel').textContent =
+                        `Traduzindo texto "${data.handle}" → ${data.language} (${data.current}/${data.total})`;
+                }
+
+                if (data.type === 'text_done') {
+                    const pct = Math.round((data.current / data.total) * 100);
+                    document.getElementById('csvProgressFill').style.width = pct + '%';
+                    document.getElementById('csvProgressPercent').textContent = pct + '%';
+                    // Adicionar indicador visual de texto traduzido
+                    const grid = document.getElementById('csvResultGrid');
+                    grid.innerHTML += `
+                        <div class="csv-result-item" style="display:flex; align-items:center; justify-content:center; aspect-ratio:auto; padding:0.8rem;">
+                            <div class="label" style="padding:0;">📝 ${data.handle} → ${data.language}</div>
+                        </div>
+                    `;
                 }
 
                 if (data.type === 'error') {

@@ -284,13 +284,58 @@ def detect_text_in_image(client: OpenAI, img_bytes: bytes, mime_type: str = "ima
         return {"has_text": True, "description": "Não foi possível analisar (assumindo que tem texto)"}
 
 
-def generate_translated_csv(rows: list[dict], mapping: dict, lang: str) -> str:
-    """Gera CSV com URLs substituídas pelas imagens traduzidas."""
+def traduzir_texto_produto(client: OpenAI, title: str, body_html: str,
+                            seo_title: str, seo_desc: str, tags: str,
+                            idioma_nome: str, marca_de: str = "", marca_para: str = "") -> dict:
+    """Traduz campos textuais de um produto via GPT-4o (chat completion)."""
+    marca_instrucao = ""
+    if marca_de and marca_para:
+        marca_instrucao = f'\nBRAND REPLACEMENT: Replace ALL occurrences of the brand "{marca_de}" with "{marca_para}" in every field.\n'
+
+    prompt = f"""Translate ALL text fields of this Shopify product to {idioma_nome}.
+{marca_instrucao}
+RULES:
+- Keep ALL HTML tags and attributes exactly as they are (only translate the visible text between tags)
+- Keep brand names unchanged (unless brand replacement is specified above)
+- Keep measurement units (cm, mm, kg, etc.) unchanged
+- Keep product codes/SKUs unchanged
+- If a field is empty, return it as empty string
+- Return ONLY valid JSON (no markdown, no ```), with these exact keys:
+
+{{"title": "translated title", "body_html": "translated HTML", "seo_title": "translated SEO title", "seo_description": "translated SEO description", "tags": "translated tags"}}
+
+Input:
+title: {title}
+body_html: {body_html}
+seo_title: {seo_title}
+seo_description: {seo_desc}
+tags: {tags}"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=4000,
+        )
+        text = response.choices[0].message.content.strip()
+        text = re.sub(r"^```json?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+        return json.loads(text)
+    except Exception as e:
+        logger.error(f"[CSV] Erro ao traduzir texto: {e}")
+        return {}
+
+
+def generate_translated_csv(rows: list[dict], mapping: dict, lang: str,
+                             text_translations: dict = None) -> str:
+    """Gera CSV com URLs substituídas e textos traduzidos."""
     import copy
     new_rows = copy.deepcopy(rows)
     fieldnames = list(rows[0].keys()) if rows else []
 
     for row in new_rows:
+        handle = row.get("Handle", "")
+
         # Substituir Image Src
         img_src = (row.get("Image Src") or "").strip()
         if img_src in mapping:
@@ -308,6 +353,30 @@ def generate_translated_csv(rows: list[dict], mapping: dict, lang: str) -> str:
                 if original_url in body_html:
                     body_html = body_html.replace(original_url, new_path)
             row["Body (HTML)"] = body_html
+
+        # Aplicar traduções de texto (se disponíveis)
+        if text_translations and handle in text_translations:
+            tt = text_translations[handle]
+            # Title: só aplicar na row principal (que tem Title preenchido)
+            if row.get("Title") and tt.get("title"):
+                row["Title"] = tt["title"]
+            # Body HTML: só na row principal (que tem body preenchido)
+            if row.get("Body (HTML)") and tt.get("body_html"):
+                # Preservar substituições de URL já feitas
+                translated_body = tt["body_html"]
+                for original_url, new_path in mapping.items():
+                    if original_url in translated_body:
+                        translated_body = translated_body.replace(original_url, new_path)
+                row["Body (HTML)"] = translated_body
+            if tt.get("seo_title") and "SEO Title" in row:
+                row["SEO Title"] = tt["seo_title"]
+            if tt.get("seo_description") and "SEO Description" in row:
+                row["SEO Description"] = tt["seo_description"]
+            if tt.get("tags") and "Tags" in row and row.get("Tags"):
+                row["Tags"] = tt["tags"]
+            # Image Alt Text: aplicar em todas as rows do handle
+            if tt.get("image_alt_text") and "Image Alt Text" in row and row.get("Image Alt Text"):
+                row["Image Alt Text"] = tt["image_alt_text"]
 
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=fieldnames)
@@ -724,14 +793,15 @@ def csv_analisar():
 
 @app.route("/csv/traduzir/stream")
 def csv_traduzir_stream():
-    """SSE endpoint para traduzir imagens selecionadas do CSV."""
+    """SSE endpoint para traduzir imagens e/ou texto do CSV."""
     job_id = request.args.get("job_id", "")
-    selected = request.args.get("images", "")  # "0,2,5"
+    selected = request.args.get("images", "")  # "0,2,5" ou "none"
     idiomas_str = request.args.get("idiomas", "")  # "en,es"
     marca_de = request.args.get("marca_de", "")
     marca_para = request.args.get("marca_para", "")
+    traduzir_texto = request.args.get("traduzir_texto", "false") == "true"
 
-    if not job_id or not selected or not idiomas_str:
+    if not job_id or not idiomas_str:
         def error_gen():
             yield f"data: {json.dumps({'type': 'error', 'message': 'Parâmetros inválidos'})}\n\n"
         return Response(error_gen(), mimetype="text/event-stream")
@@ -744,7 +814,7 @@ def csv_traduzir_stream():
             yield f"data: {json.dumps({'type': 'error', 'message': 'Job não encontrado'})}\n\n"
         return Response(error_gen(), mimetype="text/event-stream")
 
-    selected_indices = [int(x) for x in selected.split(",") if x.strip().isdigit()]
+    selected_indices = [int(x) for x in selected.split(",") if x.strip().isdigit()] if selected and selected != "none" else []
     idiomas_list = [x.strip() for x in idiomas_str.split(",") if x.strip()]
 
     def generate():
@@ -756,13 +826,28 @@ def csv_traduzir_stream():
             images_info = state["images"]
             client = get_client()
 
-            total = len(selected_indices) * len(idiomas_list)
+            # Calcular total de tarefas
+            img_tasks = len(selected_indices) * len(idiomas_list)
+            # Produtos únicos para tradução de texto
+            unique_handles = []
+            if traduzir_texto:
+                seen = set()
+                for r in rows:
+                    h = r.get("Handle", "")
+                    if h and h not in seen and (r.get("Title") or r.get("Body (HTML)")):
+                        seen.add(h)
+                        unique_handles.append(h)
+            text_tasks = len(unique_handles) * len(idiomas_list) if traduzir_texto else 0
+            total = img_tasks + text_tasks
             current = 0
             mime_types = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 
             # mapping: {lang: {original_url: new_relative_path}}
             mappings = {lang: {} for lang in idiomas_list}
+            # text_translations: {lang: {handle: {title, body_html, ...}}}
+            text_trans = {lang: {} for lang in idiomas_list}
 
+            # ── ETAPA 1: Traduzir imagens ──
             for img_idx in selected_indices:
                 if img_idx >= len(images_info):
                     continue
@@ -770,7 +855,6 @@ def csv_traduzir_stream():
                 img_info = images_info[img_idx]
                 img_filename = img_info.get("filename", f"img_{img_idx}")
 
-                # Carregar bytes da imagem original salva
                 original_path = job_dir / f"original_{img_idx}_{img_filename}"
                 if not original_path.exists():
                     for lang in idiomas_list:
@@ -798,7 +882,6 @@ def csv_traduzir_stream():
                         nome_base = Path(img_filename).stem
                         nome_saida = f"{handle}_{nome_base}_{lang}.jpg"
 
-                        # Criar pasta do idioma
                         lang_dir = job_dir / lang
                         lang_dir.mkdir(exist_ok=True)
                         caminho_saida = lang_dir / nome_saida
@@ -806,10 +889,8 @@ def csv_traduzir_stream():
                         with open(caminho_saida, "wb") as fout:
                             fout.write(resultado_jpg)
 
-                        # Mapping para CSV
                         mappings[lang][img_info["url"]] = f"{lang}/{nome_saida}"
 
-                        # Preview thumbnail
                         try:
                             thumb = Image.open(io.BytesIO(resultado_jpg))
                             thumb.thumbnail((150, 150))
@@ -823,14 +904,62 @@ def csv_traduzir_stream():
                     else:
                         yield f"data: {json.dumps({'type': 'error', 'message': f'Falha ao traduzir {img_filename} → {nome_idioma}', 'current': current, 'total': total})}\n\n"
 
-                    time.sleep(2)  # Rate limit
+                    time.sleep(2)
 
-            # Gerar CSVs traduzidos e ZIP
+            # ── ETAPA 2: Traduzir texto dos produtos ──
+            if traduzir_texto and unique_handles:
+                # Construir dados dos produtos (pegar da primeira row de cada handle)
+                product_data = {}
+                for r in rows:
+                    h = r.get("Handle", "")
+                    if h and h not in product_data:
+                        product_data[h] = {
+                            "title": r.get("Title", ""),
+                            "body_html": r.get("Body (HTML)", ""),
+                            "seo_title": r.get("SEO Title", ""),
+                            "seo_description": r.get("SEO Description", ""),
+                            "tags": r.get("Tags", ""),
+                        }
+
+                for handle in unique_handles:
+                    pd = product_data.get(handle, {})
+                    if not pd.get("title") and not pd.get("body_html"):
+                        # Pular se não tem conteúdo para traduzir
+                        for lang in idiomas_list:
+                            current += 1
+                        continue
+
+                    for lang in idiomas_list:
+                        current += 1
+                        nome_idioma = IDIOMAS.get(lang, lang)
+
+                        yield f"data: {json.dumps({'type': 'text_progress', 'current': current, 'total': total, 'handle': handle, 'language': nome_idioma})}\n\n"
+
+                        result = traduzir_texto_produto(
+                            client,
+                            title=pd.get("title", ""),
+                            body_html=pd.get("body_html", ""),
+                            seo_title=pd.get("seo_title", ""),
+                            seo_desc=pd.get("seo_description", ""),
+                            tags=pd.get("tags", ""),
+                            idioma_nome=nome_idioma,
+                            marca_de=marca_de,
+                            marca_para=marca_para,
+                        )
+
+                        if result:
+                            text_trans[lang][handle] = result
+                            yield f"data: {json.dumps({'type': 'text_done', 'current': current, 'total': total, 'handle': handle, 'language': nome_idioma})}\n\n"
+                        else:
+                            yield f"data: {json.dumps({'type': 'error', 'message': f'Falha ao traduzir texto de {handle} → {nome_idioma}', 'current': current, 'total': total})}\n\n"
+
+                        time.sleep(1)
+
+            # ── ETAPA 3: Gerar CSVs e ZIP ──
             yield f"data: {json.dumps({'type': 'progress', 'current': total, 'total': total, 'image': 'Gerando ZIP...', 'language': ''})}\n\n"
 
             zip_path = job_dir / "shopify_translated.zip"
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                # Adicionar imagens traduzidas
                 for lang in idiomas_list:
                     lang_dir = job_dir / lang
                     if lang_dir.exists():
@@ -838,13 +967,16 @@ def csv_traduzir_stream():
                             if img_file.is_file():
                                 zf.write(img_file, f"{lang}/{img_file.name}")
 
-                # Gerar e adicionar CSVs
                 for lang in idiomas_list:
-                    if mappings[lang]:
-                        csv_content = generate_translated_csv(rows, mappings[lang], lang)
+                    has_images = bool(mappings[lang])
+                    has_text = bool(text_trans.get(lang))
+                    if has_images or has_text:
+                        csv_content = generate_translated_csv(
+                            rows, mappings[lang], lang,
+                            text_translations=text_trans.get(lang)
+                        )
                         zf.writestr(f"{lang}/products_export_{lang}.csv", csv_content)
 
-                # Mapping JSON
                 zf.writestr("mapping.json", json.dumps(mappings, indent=2, ensure_ascii=False))
 
             download_url = f"/csv/download/{job_id}"
