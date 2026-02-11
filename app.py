@@ -8,17 +8,22 @@ from __future__ import annotations
 import os
 import sys
 import base64
+import csv
 import io
+import re
 import time
 import uuid
 import json
 import shutil
 import tempfile
+import zipfile
 from pathlib import Path
 from typing import Optional
 
 import logging
-from flask import Flask, render_template, request, jsonify, send_file
+import requests as http_requests
+from bs4 import BeautifulSoup
+from flask import Flask, render_template, request, jsonify, send_file, Response, stream_with_context
 from PIL import Image
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -175,6 +180,140 @@ def traduzir_imagem(client: OpenAI, imagem_bytes: bytes, mime_type: str,
 
     logger.error("[Tradução] Todos os métodos falharam")
     return None
+
+
+# ─── CSV Shopify Helpers ──────────────────────────────────
+
+def parse_shopify_csv(file_stream) -> list[dict]:
+    """Parse Shopify CSV para lista de dicts."""
+    text = file_stream.read().decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+    return list(reader)
+
+
+def extract_images_from_csv(rows: list[dict]) -> list[dict]:
+    """Extrai todas as URLs de imagens do CSV (gallery, variant, description HTML)."""
+    seen_urls = set()
+    images = []
+
+    for idx, row in enumerate(rows):
+        handle = row.get("Handle", "product")
+
+        # Image Src (gallery)
+        img_src = (row.get("Image Src") or "").strip()
+        if img_src and img_src not in seen_urls:
+            seen_urls.add(img_src)
+            images.append({
+                "url": img_src,
+                "source": "gallery",
+                "handle": handle,
+                "row_index": idx,
+                "filename": img_src.split("/")[-1].split("?")[0],
+            })
+
+        # Variant Image
+        var_img = (row.get("Variant Image") or "").strip()
+        if var_img and var_img not in seen_urls:
+            seen_urls.add(var_img)
+            images.append({
+                "url": var_img,
+                "source": "variant",
+                "handle": handle,
+                "row_index": idx,
+                "filename": var_img.split("/")[-1].split("?")[0],
+            })
+
+        # Body (HTML) — extract <img> tags
+        body_html = (row.get("Body (HTML)") or "").strip()
+        if body_html:
+            soup = BeautifulSoup(body_html, "html.parser")
+            for img_tag in soup.find_all("img"):
+                src = (img_tag.get("src") or "").strip()
+                if src and src.startswith("http") and src not in seen_urls:
+                    seen_urls.add(src)
+                    images.append({
+                        "url": src,
+                        "source": "description",
+                        "handle": handle,
+                        "row_index": idx,
+                        "filename": src.split("/")[-1].split("?")[0],
+                    })
+
+    return images
+
+
+def download_image(url: str) -> Optional[bytes]:
+    """Download imagem de URL (Shopify CDN etc)."""
+    try:
+        resp = http_requests.get(url, timeout=30)
+        resp.raise_for_status()
+        return resp.content
+    except Exception as e:
+        logger.error(f"[CSV] Erro ao baixar {url}: {e}")
+        return None
+
+
+def detect_text_in_image(client: OpenAI, img_bytes: bytes, mime_type: str = "image/png") -> dict:
+    """Usa GPT-4o Vision para detectar se imagem tem texto traduzível."""
+    img_b64 = base64.standard_b64encode(img_bytes).decode("utf-8")
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{img_b64}", "detail": "low"}},
+                    {"type": "text", "text": (
+                        "Analyze this image. Does it contain text that could be translated to another language? "
+                        "Text includes: titles, descriptions, specifications, measurements, labels, disclaimers, etc. "
+                        "Do NOT count brand names/logos or simple numbers as translatable text. "
+                        "Respond with ONLY this JSON (no markdown): "
+                        '{"has_text": true/false, "description": "brief description in Portuguese"}'
+                    )},
+                ],
+            }],
+            max_tokens=150,
+        )
+        text = response.choices[0].message.content.strip()
+        # Remove markdown wrapping if present
+        text = re.sub(r"^```json?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+        return json.loads(text)
+    except Exception as e:
+        logger.error(f"[CSV] Erro na detecção de texto: {e}")
+        return {"has_text": True, "description": "Não foi possível analisar (assumindo que tem texto)"}
+
+
+def generate_translated_csv(rows: list[dict], mapping: dict, lang: str) -> str:
+    """Gera CSV com URLs substituídas pelas imagens traduzidas."""
+    import copy
+    new_rows = copy.deepcopy(rows)
+    fieldnames = list(rows[0].keys()) if rows else []
+
+    for row in new_rows:
+        # Substituir Image Src
+        img_src = (row.get("Image Src") or "").strip()
+        if img_src in mapping:
+            row["Image Src"] = mapping[img_src]
+
+        # Substituir Variant Image
+        var_img = (row.get("Variant Image") or "").strip()
+        if var_img in mapping:
+            row["Variant Image"] = mapping[var_img]
+
+        # Substituir <img src> no Body HTML
+        body_html = (row.get("Body (HTML)") or "").strip()
+        if body_html:
+            for original_url, new_path in mapping.items():
+                if original_url in body_html:
+                    body_html = body_html.replace(original_url, new_path)
+            row["Body (HTML)"] = body_html
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(new_rows)
+    return output.getvalue()
 
 
 # ─── Rotas ─────────────────────────────────────────────────
@@ -461,6 +600,271 @@ def download(job_id, nome_arquivo):
     if not caminho.exists():
         return jsonify({"erro": "Arquivo não encontrado"}), 404
     return send_file(str(caminho), as_attachment=True, download_name=nome_arquivo)
+
+
+# ─── Rotas CSV Shopify ────────────────────────────────────
+
+@app.route("/csv/analisar", methods=["POST"])
+def csv_analisar():
+    """Recebe CSV Shopify, extrai imagens e detecta texto."""
+    _cleanup_old_files()
+
+    if "csv_file" not in request.files:
+        return jsonify({"erro": "Nenhum arquivo CSV enviado"}), 400
+
+    csv_file = request.files["csv_file"]
+    if not csv_file.filename or not csv_file.filename.lower().endswith(".csv"):
+        return jsonify({"erro": "Envie um arquivo .csv"}), 400
+
+    # Parse CSV
+    try:
+        rows = parse_shopify_csv(csv_file)
+    except Exception as e:
+        logger.error(f"[CSV] Erro ao parsear CSV: {e}")
+        return jsonify({"erro": f"Erro ao ler CSV: {e}"}), 400
+
+    if not rows:
+        return jsonify({"erro": "CSV vazio ou sem dados"}), 400
+
+    # Verificar colunas obrigatórias
+    required = {"Handle", "Image Src"}
+    if not required.issubset(set(rows[0].keys())):
+        return jsonify({"erro": f"CSV não tem colunas obrigatórias: {required}"}), 400
+
+    # Extrair imagens
+    images = extract_images_from_csv(rows)
+    if not images:
+        return jsonify({"erro": "Nenhuma imagem encontrada no CSV"}), 400
+
+    # Criar job directory
+    job_id = str(uuid.uuid4())[:8]
+    job_dir = OUTPUT_FOLDER / job_id
+    job_dir.mkdir(exist_ok=True)
+
+    # Contar produtos únicos
+    handles = set(r.get("Handle", "") for r in rows if r.get("Handle"))
+    product_count = len(handles)
+
+    # Download imagens e detectar texto
+    try:
+        client = get_client()
+    except ValueError as e:
+        return jsonify({"erro": str(e)}), 500
+
+    result_images = []
+    for i, img_info in enumerate(images):
+        logger.info(f"[CSV] Baixando imagem {i+1}/{len(images)}: {img_info['filename']}")
+
+        img_bytes = download_image(img_info["url"])
+        if not img_bytes:
+            result_images.append({
+                "index": i,
+                "url": img_info["url"],
+                "source": img_info["source"],
+                "handle": img_info["handle"],
+                "filename": img_info["filename"],
+                "has_text": False,
+                "description": "Erro ao baixar imagem",
+                "error": True,
+            })
+            continue
+
+        # Salvar imagem em disco
+        img_path = job_dir / f"original_{i}_{img_info['filename']}"
+        with open(img_path, "wb") as f:
+            f.write(img_bytes)
+
+        # Detectar texto
+        ext = Path(img_info["filename"]).suffix.lower()
+        mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}.get(ext, "image/png")
+
+        detection = detect_text_in_image(client, img_bytes, mime)
+
+        # Thumbnail (base64, pequeno)
+        try:
+            thumb = Image.open(io.BytesIO(img_bytes))
+            thumb.thumbnail((120, 120))
+            if thumb.mode in ("RGBA", "P"):
+                thumb = thumb.convert("RGB")
+            buf = io.BytesIO()
+            thumb.save(buf, format="JPEG", quality=70)
+            thumb_b64 = base64.standard_b64encode(buf.getvalue()).decode("utf-8")
+        except Exception:
+            thumb_b64 = ""
+
+        result_images.append({
+            "index": i,
+            "url": img_info["url"],
+            "source": img_info["source"],
+            "handle": img_info["handle"],
+            "filename": img_info["filename"],
+            "has_text": detection.get("has_text", False),
+            "description": detection.get("description", ""),
+            "thumbnail": f"data:image/jpeg;base64,{thumb_b64}" if thumb_b64 else "",
+        })
+
+        time.sleep(0.5)  # Rate limit para Vision API
+
+    # Salvar estado
+    state = {
+        "rows": rows,
+        "images": [img for img in images],
+        "product_count": product_count,
+    }
+    with open(job_dir / "state.json", "w") as f:
+        json.dump(state, f, ensure_ascii=False)
+
+    return jsonify({
+        "job_id": job_id,
+        "product_count": product_count,
+        "total_images": len(images),
+        "images": result_images,
+    })
+
+
+@app.route("/csv/traduzir/stream")
+def csv_traduzir_stream():
+    """SSE endpoint para traduzir imagens selecionadas do CSV."""
+    job_id = request.args.get("job_id", "")
+    selected = request.args.get("images", "")  # "0,2,5"
+    idiomas_str = request.args.get("idiomas", "")  # "en,es"
+    marca_de = request.args.get("marca_de", "")
+    marca_para = request.args.get("marca_para", "")
+
+    if not job_id or not selected or not idiomas_str:
+        def error_gen():
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Parâmetros inválidos'})}\n\n"
+        return Response(error_gen(), mimetype="text/event-stream")
+
+    job_dir = OUTPUT_FOLDER / job_id
+    state_path = job_dir / "state.json"
+
+    if not state_path.exists():
+        def error_gen():
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Job não encontrado'})}\n\n"
+        return Response(error_gen(), mimetype="text/event-stream")
+
+    selected_indices = [int(x) for x in selected.split(",") if x.strip().isdigit()]
+    idiomas_list = [x.strip() for x in idiomas_str.split(",") if x.strip()]
+
+    def generate():
+        try:
+            with open(state_path) as f:
+                state = json.load(f)
+
+            rows = state["rows"]
+            images_info = state["images"]
+            client = get_client()
+
+            total = len(selected_indices) * len(idiomas_list)
+            current = 0
+            mime_types = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+
+            # mapping: {lang: {original_url: new_relative_path}}
+            mappings = {lang: {} for lang in idiomas_list}
+
+            for img_idx in selected_indices:
+                if img_idx >= len(images_info):
+                    continue
+
+                img_info = images_info[img_idx]
+                img_filename = img_info.get("filename", f"img_{img_idx}")
+
+                # Carregar bytes da imagem original salva
+                original_path = job_dir / f"original_{img_idx}_{img_filename}"
+                if not original_path.exists():
+                    for lang in idiomas_list:
+                        current += 1
+                        yield f"data: {json.dumps({'type': 'error', 'message': f'Imagem não encontrada: {img_filename}', 'current': current, 'total': total})}\n\n"
+                    continue
+
+                with open(original_path, "rb") as f:
+                    img_bytes = f.read()
+
+                ext = Path(img_filename).suffix.lower()
+                mime = mime_types.get(ext, "image/png")
+                handle = img_info.get("handle", "product")
+
+                for lang in idiomas_list:
+                    current += 1
+                    nome_idioma = IDIOMAS.get(lang, lang)
+
+                    yield f"data: {json.dumps({'type': 'progress', 'current': current, 'total': total, 'image': img_filename, 'language': nome_idioma})}\n\n"
+
+                    resultado = traduzir_imagem(client, img_bytes, mime, nome_idioma, marca_de, marca_para)
+
+                    if resultado:
+                        resultado_jpg = converter_para_jpg(resultado)
+                        nome_base = Path(img_filename).stem
+                        nome_saida = f"{handle}_{nome_base}_{lang}.jpg"
+
+                        # Criar pasta do idioma
+                        lang_dir = job_dir / lang
+                        lang_dir.mkdir(exist_ok=True)
+                        caminho_saida = lang_dir / nome_saida
+
+                        with open(caminho_saida, "wb") as fout:
+                            fout.write(resultado_jpg)
+
+                        # Mapping para CSV
+                        mappings[lang][img_info["url"]] = f"{lang}/{nome_saida}"
+
+                        # Preview thumbnail
+                        try:
+                            thumb = Image.open(io.BytesIO(resultado_jpg))
+                            thumb.thumbnail((150, 150))
+                            buf = io.BytesIO()
+                            thumb.save(buf, format="JPEG", quality=75)
+                            preview_b64 = base64.standard_b64encode(buf.getvalue()).decode("utf-8")
+                        except Exception:
+                            preview_b64 = ""
+
+                        yield f"data: {json.dumps({'type': 'image_done', 'current': current, 'total': total, 'image': img_filename, 'language': nome_idioma, 'lang_code': lang, 'output_file': nome_saida, 'preview': f'data:image/jpeg;base64,{preview_b64}' if preview_b64 else ''})}\n\n"
+                    else:
+                        yield f"data: {json.dumps({'type': 'error', 'message': f'Falha ao traduzir {img_filename} → {nome_idioma}', 'current': current, 'total': total})}\n\n"
+
+                    time.sleep(2)  # Rate limit
+
+            # Gerar CSVs traduzidos e ZIP
+            yield f"data: {json.dumps({'type': 'progress', 'current': total, 'total': total, 'image': 'Gerando ZIP...', 'language': ''})}\n\n"
+
+            zip_path = job_dir / "shopify_translated.zip"
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                # Adicionar imagens traduzidas
+                for lang in idiomas_list:
+                    lang_dir = job_dir / lang
+                    if lang_dir.exists():
+                        for img_file in lang_dir.iterdir():
+                            if img_file.is_file():
+                                zf.write(img_file, f"{lang}/{img_file.name}")
+
+                # Gerar e adicionar CSVs
+                for lang in idiomas_list:
+                    if mappings[lang]:
+                        csv_content = generate_translated_csv(rows, mappings[lang], lang)
+                        zf.writestr(f"{lang}/products_export_{lang}.csv", csv_content)
+
+                # Mapping JSON
+                zf.writestr("mapping.json", json.dumps(mappings, indent=2, ensure_ascii=False))
+
+            download_url = f"/csv/download/{job_id}"
+            yield f"data: {json.dumps({'type': 'complete', 'download_url': download_url, 'total_translated': current})}\n\n"
+
+        except Exception as e:
+            logger.error(f"[CSV] Erro na tradução SSE: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.route("/csv/download/<job_id>")
+def csv_download(job_id):
+    """Download ZIP com imagens traduzidas e CSVs."""
+    zip_path = OUTPUT_FOLDER / job_id / "shopify_translated.zip"
+    if not zip_path.exists():
+        return jsonify({"erro": "Arquivo não encontrado"}), 404
+    return send_file(str(zip_path), as_attachment=True, download_name="shopify_translated.zip")
 
 
 if __name__ == "__main__":

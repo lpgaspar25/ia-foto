@@ -531,6 +531,219 @@
         .file-count {
             color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 0.5rem;
         }
+
+        /* ═══ Accent3 — CSV Shopify (teal) ═══ */
+        :root {
+            --accent3: #14b8a6;
+            --accent3-hover: #2dd4bf;
+            --accent3-glow: rgba(20, 184, 166, 0.25);
+            --accent3-subtle: rgba(20, 184, 166, 0.08);
+        }
+        .tab.active-teal {
+            color: var(--accent3-hover);
+            background: var(--accent3-subtle);
+            font-weight: 600;
+        }
+        .btn-csv {
+            width: 100%;
+            padding: 1rem;
+            background: var(--accent3);
+            border: none;
+            border-radius: var(--radius-md);
+            color: #fff;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            box-shadow: 0 2px 10px var(--accent3-glow);
+        }
+        .btn-csv:hover {
+            background: var(--accent3-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px var(--accent3-glow);
+        }
+        .btn-csv:disabled {
+            background: #1e1e1e; color: #505050; cursor: not-allowed; transform: none; box-shadow: none;
+        }
+
+        /* CSV Phase containers */
+        .csv-phase { display: none; }
+        .csv-phase.visible { display: block; }
+
+        /* CSV Upload area */
+        .csv-upload-area {
+            border: 2px dashed #303030;
+            border-radius: var(--radius-md);
+            padding: 2.5rem;
+            text-align: center;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .csv-upload-area:hover { border-color: var(--accent3); background: rgba(20, 184, 166, 0.04); }
+        .csv-upload-area.has-file { border-color: var(--success); border-style: solid; }
+        .csv-upload-area input { display: none; }
+
+        /* Image review table */
+        .img-review-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0 0.4rem;
+        }
+        .img-review-table th {
+            text-align: left;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 0.4rem 0.6rem;
+        }
+        .img-review-table td {
+            padding: 0.5rem 0.6rem;
+            background: var(--bg-input);
+            font-size: 0.85rem;
+            vertical-align: middle;
+        }
+        .img-review-table tr td:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+        .img-review-table tr td:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+        .img-review-thumb {
+            width: 60px; height: 60px;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .badge-gallery { background: rgba(99,102,241,0.15); color: #818cf8; }
+        .badge-variant { background: rgba(168,85,247,0.15); color: #c084fc; }
+        .badge-description { background: rgba(20,184,166,0.15); color: #2dd4bf; }
+        .text-indicator {
+            display: flex; align-items: center; gap: 0.3rem;
+            font-size: 0.82rem;
+        }
+        .text-indicator.has-text { color: var(--success); }
+        .text-indicator.no-text { color: var(--text-muted); }
+
+        .csv-checkbox {
+            width: 18px; height: 18px;
+            accent-color: var(--accent3);
+            cursor: pointer;
+        }
+
+        /* Selection buttons row */
+        .selection-btns {
+            display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;
+        }
+        .selection-btns button {
+            padding: 0.4rem 0.8rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            border-radius: var(--radius-sm);
+            font-size: 0.78rem;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .selection-btns button:hover { border-color: var(--accent3); color: var(--accent3-hover); }
+
+        /* Progress bar */
+        .csv-progress-bar {
+            width: 100%;
+            height: 8px;
+            background: var(--bg-input);
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 1rem 0;
+        }
+        .csv-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent3), var(--accent3-hover));
+            border-radius: 4px;
+            transition: width 0.4s ease;
+            width: 0%;
+        }
+        .csv-progress-text {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            margin-bottom: 0.5rem;
+        }
+        .csv-progress-percent {
+            color: var(--accent3-hover);
+            font-weight: 600;
+        }
+
+        /* Translated images grid */
+        .csv-result-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+        .csv-result-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+            text-align: center;
+        }
+        .csv-result-item img {
+            width: 100%;
+            aspect-ratio: 1;
+            object-fit: cover;
+        }
+        .csv-result-item .label {
+            padding: 0.3rem 0.5rem;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* Info / summary */
+        .csv-summary {
+            display: flex; gap: 1.5rem; flex-wrap: wrap;
+            padding: 1rem;
+            background: var(--bg-input);
+            border-radius: var(--radius-sm);
+            margin-bottom: 1rem;
+        }
+        .csv-summary-item {
+            text-align: center;
+        }
+        .csv-summary-item .value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent3-hover);
+        }
+        .csv-summary-item .label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        /* Estimate text */
+        .csv-estimate {
+            color: var(--text-muted);
+            font-size: 0.82rem;
+            margin-top: 0.75rem;
+            text-align: center;
+        }
+
+        /* CSV idiomas grid (reuse) */
+        .csv-idiomas-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.65rem;
+        }
+        @media (max-width: 600px) {
+            .csv-idiomas-grid { grid-template-columns: repeat(2, 1fr); }
+        }
     </style>
 </head>
 <body>
@@ -549,6 +762,9 @@
             </div>
             <div class="tab" onclick="switchTab('substituir')">
                 <span class="tab-icon">🔄</span> Substituir Produto
+            </div>
+            <div class="tab" onclick="switchTab('csv')">
+                <span class="tab-icon">📋</span> CSV Shopify
             </div>
         </div>
 
@@ -714,6 +930,141 @@
             </div>
 
         </div><!-- /tab-substituir -->
+
+        <!-- ═══════ ABA 3: CSV SHOPIFY ═══════ -->
+        <div class="tab-content" id="tab-csv">
+
+            <!-- Fase 1: Upload CSV -->
+            <div class="csv-phase visible" id="csvPhase1">
+                <div class="card">
+                    <h2>Upload CSV Shopify</h2>
+                    <div class="csv-upload-area" id="csvUploadArea" onclick="document.getElementById('csvFileInput').click()">
+                        <div id="csvPlaceholder">
+                            <div class="upload-icon">📋</div>
+                            <div class="upload-text">
+                                Arraste seu CSV aqui ou <span style="color:var(--accent3-hover); font-weight:500;">clique para selecionar</span>
+                            </div>
+                            <div class="upload-text" style="margin-top:0.3rem; font-size:0.78rem;">
+                                Exportado do Shopify (products_export.csv)
+                            </div>
+                        </div>
+                        <div id="csvFileInfo" style="display:none;">
+                            <div style="font-size:1.5rem; margin-bottom:0.5rem;">📄</div>
+                            <div style="color:#fff; font-weight:500;" id="csvFileName"></div>
+                            <div style="color:var(--text-secondary); font-size:0.8rem; margin-top:0.2rem;" id="csvFileSize"></div>
+                        </div>
+                        <input type="file" id="csvFileInput" accept=".csv">
+                    </div>
+                </div>
+
+                <button class="btn-csv" id="btnAnalisar" onclick="analisarCSV()" disabled>
+                    Analisar CSV
+                </button>
+
+                <div class="loading" id="csvLoading1">
+                    <div class="spinner" style="border-top-color: var(--accent3);"></div>
+                    <div class="loading-text">
+                        Analisando imagens com <span class="loading-lang" style="color:var(--accent3-hover);">GPT-4o Vision</span>
+                    </div>
+                    <div class="loading-text" style="margin-top:0.3rem; font-size:0.8rem; color:#666;">
+                        Baixando e detectando texto nas imagens...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fase 2: Revisão de imagens -->
+            <div class="csv-phase" id="csvPhase2">
+                <div class="card">
+                    <h2>Imagens encontradas</h2>
+                    <div class="csv-summary" id="csvSummary"></div>
+
+                    <div class="selection-btns">
+                        <button onclick="csvSelectText()">✅ Selecionar com texto</button>
+                        <button onclick="csvSelectAll()">Selecionar todas</button>
+                        <button onclick="csvSelectNone()">Limpar seleção</button>
+                    </div>
+
+                    <div style="overflow-x:auto;">
+                        <table class="img-review-table" id="csvImageTable">
+                            <thead>
+                                <tr>
+                                    <th></th>
+                                    <th>Preview</th>
+                                    <th>Tipo</th>
+                                    <th>Produto</th>
+                                    <th>Texto?</th>
+                                    <th>Descrição AI</th>
+                                </tr>
+                            </thead>
+                            <tbody id="csvImageTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Idiomas CSV -->
+                <div class="card">
+                    <h2>Idiomas</h2>
+                    <button class="select-all-btn" onclick="csvToggleAllIdiomas()">Selecionar todos</button>
+                    <div class="csv-idiomas-grid" id="csvIdiomasGrid">
+                        {% for code, name in idiomas.items() %}
+                        <label class="idioma-item csv-idioma-item" data-code="{{ code }}">
+                            <input type="checkbox" name="csv_idiomas" value="{{ code }}">
+                            <div class="idioma-check">✓</div>
+                            <span class="idioma-flag">
+                                {% if code == 'en' %}🇬🇧{% elif code == 'es' %}🇪🇸{% elif code == 'fr' %}🇫🇷{% elif code == 'it' %}🇮🇹{% elif code == 'de' %}🇩🇪{% elif code == 'nl' %}🇳🇱{% endif %}
+                            </span>
+                            <span class="idioma-name">{{ name }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Marca CSV -->
+                <div class="card">
+                    <h2>Trocar Marca <span style="font-weight:400; color:#666; text-transform:none;">(opcional)</span></h2>
+                    <div class="marca-row">
+                        <div class="marca-field">
+                            <label>Marca original</label>
+                            <input type="text" id="csvMarcaDe" placeholder="Ex: HEFESTUS">
+                        </div>
+                        <div class="marca-arrow">→</div>
+                        <div class="marca-field">
+                            <label>Sua marca</label>
+                            <input type="text" id="csvMarcaPara" placeholder="Ex: MULTIALPHA">
+                        </div>
+                    </div>
+                </div>
+
+                <button class="btn-csv" id="btnTraduzirCSV" onclick="iniciarTraducaoCSV()" disabled>
+                    Traduzir Selecionadas
+                </button>
+                <div class="csv-estimate" id="csvEstimate"></div>
+            </div>
+
+            <!-- Fase 3: Progresso e Download -->
+            <div class="csv-phase" id="csvPhase3">
+                <div class="card">
+                    <h2>Tradução em andamento</h2>
+                    <div class="csv-progress-text">
+                        <span id="csvProgressLabel">Preparando...</span>
+                        <span class="csv-progress-percent" id="csvProgressPercent">0%</span>
+                    </div>
+                    <div class="csv-progress-bar">
+                        <div class="csv-progress-fill" id="csvProgressFill"></div>
+                    </div>
+
+                    <div class="csv-result-grid" id="csvResultGrid"></div>
+                </div>
+
+                <div id="csvDownloadArea" style="display:none; margin-top:1rem;">
+                    <a class="btn-csv" id="csvDownloadBtn" href="#" download style="display:block; text-align:center; text-decoration:none;">
+                        ⬇ Baixar ZIP com traduções
+                    </a>
+                    <button class="btn-novo" onclick="novaAnaliseCSV()" style="margin-top:1rem;">← Nova análise</button>
+                </div>
+            </div>
+
+        </div><!-- /tab-csv -->
 
     </div>
 
@@ -927,13 +1278,15 @@
 
         // ─── Tabs ───
         function switchTab(tab) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active', 'active-green'));
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active', 'active-green', 'active-teal'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
 
             if (tab === 'traduzir') {
                 document.querySelectorAll('.tab')[0].classList.add('active');
-            } else {
+            } else if (tab === 'substituir') {
                 document.querySelectorAll('.tab')[1].classList.add('active-green');
+            } else if (tab === 'csv') {
+                document.querySelectorAll('.tab')[2].classList.add('active-teal');
             }
             document.getElementById('tab-' + tab).classList.add('active');
         }
@@ -1013,6 +1366,267 @@
             });
             document.getElementById('subInstrucoes').value = '';
             checkSubReady();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // ─── CSV Shopify ───
+        let csvFile = null;
+        let csvJobId = null;
+        let csvImages = [];
+
+        // Upload CSV
+        const csvUploadArea = document.getElementById('csvUploadArea');
+        const csvFileInput = document.getElementById('csvFileInput');
+
+        ['dragenter','dragover'].forEach(e => {
+            csvUploadArea.addEventListener(e, ev => { ev.preventDefault(); csvUploadArea.style.borderColor = 'var(--accent3)'; });
+        });
+        ['dragleave','drop'].forEach(e => {
+            csvUploadArea.addEventListener(e, ev => { ev.preventDefault(); csvUploadArea.style.borderColor = ''; });
+        });
+        csvUploadArea.addEventListener('drop', ev => {
+            const f = ev.dataTransfer.files[0];
+            if (f && f.name.endsWith('.csv')) setCsvFile(f);
+            else alert('Envie um arquivo .csv');
+        });
+        csvFileInput.addEventListener('change', ev => {
+            if (ev.target.files[0]) setCsvFile(ev.target.files[0]);
+        });
+
+        function setCsvFile(file) {
+            csvFile = file;
+            document.getElementById('csvPlaceholder').style.display = 'none';
+            document.getElementById('csvFileInfo').style.display = 'block';
+            document.getElementById('csvFileName').textContent = file.name;
+            document.getElementById('csvFileSize').textContent = (file.size / 1024).toFixed(0) + ' KB';
+            csvUploadArea.classList.add('has-file');
+            document.getElementById('btnAnalisar').disabled = false;
+        }
+
+        // Idiomas CSV
+        document.querySelectorAll('.csv-idioma-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const cb = item.querySelector('input');
+                cb.checked = !cb.checked;
+                item.classList.toggle('selected', cb.checked);
+                updateCsvTraduzirBtn();
+            });
+        });
+
+        function csvToggleAllIdiomas() {
+            const items = document.querySelectorAll('.csv-idioma-item');
+            const allSel = [...items].every(i => i.classList.contains('selected'));
+            items.forEach(item => {
+                const cb = item.querySelector('input');
+                cb.checked = !allSel;
+                item.classList.toggle('selected', !allSel);
+            });
+            updateCsvTraduzirBtn();
+        }
+
+        function getSelectedCsvIdiomas() {
+            return [...document.querySelectorAll('.csv-idioma-item.selected')].map(i => i.dataset.code);
+        }
+
+        function getSelectedCsvImages() {
+            return [...document.querySelectorAll('.csv-checkbox:checked')].map(cb => parseInt(cb.dataset.index));
+        }
+
+        function updateCsvTraduzirBtn() {
+            const imgs = getSelectedCsvImages().length;
+            const langs = getSelectedCsvIdiomas().length;
+            const btn = document.getElementById('btnTraduzirCSV');
+            const est = document.getElementById('csvEstimate');
+
+            btn.disabled = !(imgs > 0 && langs > 0);
+
+            if (imgs > 0 && langs > 0) {
+                const total = imgs * langs;
+                const mins = Math.ceil(total * 20 / 60);
+                btn.textContent = `Traduzir ${imgs} imagem(ns) × ${langs} idioma(s) = ${total} traduções`;
+                est.textContent = `Estimativa: ~${mins} minuto(s) (15-30s por tradução)`;
+            } else {
+                btn.textContent = 'Traduzir Selecionadas';
+                est.textContent = '';
+            }
+        }
+
+        // Selection helpers
+        function csvSelectText() {
+            document.querySelectorAll('.csv-checkbox').forEach(cb => {
+                cb.checked = cb.dataset.hasText === 'true';
+            });
+            updateCsvTraduzirBtn();
+        }
+        function csvSelectAll() {
+            document.querySelectorAll('.csv-checkbox').forEach(cb => { cb.checked = true; });
+            updateCsvTraduzirBtn();
+        }
+        function csvSelectNone() {
+            document.querySelectorAll('.csv-checkbox').forEach(cb => { cb.checked = false; });
+            updateCsvTraduzirBtn();
+        }
+
+        // Fase 1: Analisar CSV
+        async function analisarCSV() {
+            if (!csvFile) return;
+
+            const formData = new FormData();
+            formData.append('csv_file', csvFile);
+
+            document.getElementById('btnAnalisar').disabled = true;
+            document.getElementById('csvLoading1').classList.add('visible');
+
+            try {
+                const resp = await fetch('/csv/analisar', { method: 'POST', body: formData });
+                const data = await resp.json();
+
+                if (data.erro) {
+                    alert('Erro: ' + data.erro);
+                    return;
+                }
+
+                csvJobId = data.job_id;
+                csvImages = data.images;
+
+                // Preencher resumo
+                const textCount = data.images.filter(i => i.has_text).length;
+                document.getElementById('csvSummary').innerHTML = `
+                    <div class="csv-summary-item"><div class="value">${data.product_count}</div><div class="label">Produtos</div></div>
+                    <div class="csv-summary-item"><div class="value">${data.total_images}</div><div class="label">Imagens</div></div>
+                    <div class="csv-summary-item"><div class="value">${textCount}</div><div class="label">Com texto</div></div>
+                `;
+
+                // Preencher tabela
+                const tbody = document.getElementById('csvImageTableBody');
+                tbody.innerHTML = '';
+                data.images.forEach(img => {
+                    const badgeClass = img.source === 'gallery' ? 'badge-gallery' :
+                                       img.source === 'variant' ? 'badge-variant' : 'badge-description';
+                    const badgeLabel = img.source === 'gallery' ? 'Galeria' :
+                                       img.source === 'variant' ? 'Variante' : 'Descrição';
+                    const textClass = img.has_text ? 'has-text' : 'no-text';
+                    const textLabel = img.has_text ? '✅ Tem texto' : '⚪ Sem texto';
+
+                    tbody.innerHTML += `
+                        <tr>
+                            <td><input type="checkbox" class="csv-checkbox" data-index="${img.index}" data-has-text="${img.has_text}" ${img.has_text ? 'checked' : ''} onchange="updateCsvTraduzirBtn()"></td>
+                            <td>${img.thumbnail ? `<img class="img-review-thumb" src="${img.thumbnail}">` : '<div style="width:60px;height:60px;background:#222;border-radius:6px;"></div>'}</td>
+                            <td><span class="badge ${badgeClass}">${badgeLabel}</span></td>
+                            <td style="color:var(--text-secondary);">${img.handle}</td>
+                            <td><span class="text-indicator ${textClass}">${textLabel}</span></td>
+                            <td style="color:var(--text-muted); font-size:0.78rem; max-width:200px;">${img.description || (img.error ? '⚠️ Erro ao baixar' : '')}</td>
+                        </tr>
+                    `;
+                });
+
+                // Mostrar fase 2
+                document.getElementById('csvPhase1').classList.remove('visible');
+                document.getElementById('csvPhase2').classList.add('visible');
+                updateCsvTraduzirBtn();
+
+            } catch (err) {
+                alert('Erro de conexão: ' + err.message);
+            } finally {
+                document.getElementById('csvLoading1').classList.remove('visible');
+                document.getElementById('btnAnalisar').disabled = false;
+            }
+        }
+
+        // Fase 2→3: Traduzir via SSE
+        function iniciarTraducaoCSV() {
+            const imgs = getSelectedCsvImages();
+            const langs = getSelectedCsvIdiomas();
+            const marcaDe = document.getElementById('csvMarcaDe').value.trim();
+            const marcaPara = document.getElementById('csvMarcaPara').value.trim();
+
+            if (imgs.length === 0 || langs.length === 0) return;
+
+            // Mostrar fase 3
+            document.getElementById('csvPhase2').classList.remove('visible');
+            document.getElementById('csvPhase3').classList.add('visible');
+            document.getElementById('csvDownloadArea').style.display = 'none';
+            document.getElementById('csvResultGrid').innerHTML = '';
+            document.getElementById('csvProgressFill').style.width = '0%';
+            document.getElementById('csvProgressPercent').textContent = '0%';
+            document.getElementById('csvProgressLabel').textContent = 'Iniciando...';
+
+            const params = new URLSearchParams({
+                job_id: csvJobId,
+                images: imgs.join(','),
+                idiomas: langs.join(','),
+                marca_de: marcaDe,
+                marca_para: marcaPara,
+            });
+
+            const source = new EventSource(`/csv/traduzir/stream?${params}`);
+
+            source.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'progress') {
+                    const pct = Math.round((data.current / data.total) * 100);
+                    document.getElementById('csvProgressFill').style.width = pct + '%';
+                    document.getElementById('csvProgressPercent').textContent = pct + '%';
+                    document.getElementById('csvProgressLabel').textContent =
+                        `Traduzindo ${data.image} → ${data.language} (${data.current}/${data.total})`;
+                }
+
+                if (data.type === 'image_done') {
+                    const pct = Math.round((data.current / data.total) * 100);
+                    document.getElementById('csvProgressFill').style.width = pct + '%';
+                    document.getElementById('csvProgressPercent').textContent = pct + '%';
+
+                    if (data.preview) {
+                        const grid = document.getElementById('csvResultGrid');
+                        grid.innerHTML += `
+                            <div class="csv-result-item">
+                                <img src="${data.preview}" alt="${data.output_file}">
+                                <div class="label">${FLAGS[data.lang_code] || ''} ${data.output_file}</div>
+                            </div>
+                        `;
+                    }
+                }
+
+                if (data.type === 'error') {
+                    console.error('CSV tradução erro:', data.message);
+                    if (data.current && data.total) {
+                        const pct = Math.round((data.current / data.total) * 100);
+                        document.getElementById('csvProgressFill').style.width = pct + '%';
+                        document.getElementById('csvProgressPercent').textContent = pct + '%';
+                    }
+                }
+
+                if (data.type === 'complete') {
+                    source.close();
+                    document.getElementById('csvProgressFill').style.width = '100%';
+                    document.getElementById('csvProgressPercent').textContent = '100%';
+                    document.getElementById('csvProgressLabel').textContent = 'Tradução concluída!';
+                    document.getElementById('csvDownloadBtn').href = data.download_url;
+                    document.getElementById('csvDownloadArea').style.display = 'block';
+                }
+            };
+
+            source.onerror = () => {
+                source.close();
+                document.getElementById('csvProgressLabel').textContent = 'Erro na conexão SSE. Tente novamente.';
+            };
+        }
+
+        function novaAnaliseCSV() {
+            // Reset tudo
+            csvFile = null;
+            csvJobId = null;
+            csvImages = [];
+            csvFileInput.value = '';
+            document.getElementById('csvPlaceholder').style.display = '';
+            document.getElementById('csvFileInfo').style.display = 'none';
+            csvUploadArea.classList.remove('has-file');
+            document.getElementById('btnAnalisar').disabled = true;
+
+            document.getElementById('csvPhase3').classList.remove('visible');
+            document.getElementById('csvPhase2').classList.remove('visible');
+            document.getElementById('csvPhase1').classList.add('visible');
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
     </script>
