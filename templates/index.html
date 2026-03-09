@@ -776,6 +776,344 @@
         @media (max-width: 600px) {
             .csv-idiomas-grid { grid-template-columns: repeat(2, 1fr); }
         }
+
+        /* ═══ Accent4 — Pipeline Kanban (amber) ═══ */
+        :root {
+            --accent4: #f59e0b;
+            --accent4-hover: #fbbf24;
+            --accent4-glow: rgba(245, 158, 11, 0.25);
+            --accent4-subtle: rgba(245, 158, 11, 0.08);
+        }
+        .tab.active-amber {
+            color: var(--accent4-hover);
+            background: var(--accent4-subtle);
+            font-weight: 600;
+        }
+
+        /* ═══ Pipeline Kanban Board ═══ */
+        .kanban-board {
+            display: flex;
+            gap: 0.75rem;
+            overflow-x: auto;
+            padding-bottom: 1rem;
+            min-height: 70vh;
+            scroll-snap-type: x proximity;
+            -webkit-overflow-scrolling: touch;
+        }
+        .kanban-board::-webkit-scrollbar { height: 6px; }
+        .kanban-board::-webkit-scrollbar-track { background: var(--bg-input); border-radius: 3px; }
+        .kanban-board::-webkit-scrollbar-thumb { background: var(--border-hover); border-radius: 3px; }
+
+        .kanban-column {
+            min-width: 220px;
+            max-width: 260px;
+            flex: 1 0 220px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            display: flex;
+            flex-direction: column;
+            scroll-snap-align: start;
+        }
+        .kanban-column-header {
+            padding: 0.75rem 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+        }
+        .kanban-column-title {
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .kanban-column-count {
+            font-size: 0.7rem;
+            background: var(--bg-elevated);
+            color: var(--text-muted);
+            padding: 0.1rem 0.45rem;
+            border-radius: 10px;
+            font-weight: 600;
+        }
+        .kanban-add-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            cursor: pointer;
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            transition: var(--transition);
+            line-height: 1;
+        }
+        .kanban-add-btn:hover {
+            color: var(--accent4-hover);
+            background: var(--accent4-subtle);
+        }
+        .kanban-cards {
+            padding: 0.5rem;
+            flex: 1;
+            overflow-y: auto;
+            max-height: 65vh;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .kanban-cards.drag-over {
+            background: var(--accent4-subtle);
+            border-radius: var(--radius-sm);
+        }
+
+        /* Cards */
+        .kanban-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 0.7rem 0.8rem;
+            cursor: grab;
+            transition: var(--transition);
+        }
+        .kanban-card:hover {
+            border-color: var(--border-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .kanban-card.dragging {
+            opacity: 0.4;
+            cursor: grabbing;
+        }
+        .kanban-card-title {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 0.35rem;
+            word-break: break-word;
+        }
+        .kanban-card-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+            margin-bottom: 0.35rem;
+        }
+        .kanban-tag {
+            display: inline-block;
+            padding: 0.1rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.6rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .kanban-tag-red { background: rgba(239,68,68,0.15); color: #f87171; }
+        .kanban-tag-orange { background: rgba(245,158,11,0.15); color: #fbbf24; }
+        .kanban-tag-green { background: rgba(16,185,129,0.15); color: #34d399; }
+        .kanban-tag-blue { background: rgba(99,102,241,0.15); color: #818cf8; }
+        .kanban-tag-purple { background: rgba(168,85,247,0.15); color: #c084fc; }
+        .kanban-tag-teal { background: rgba(20,184,166,0.15); color: #2dd4bf; }
+        .kanban-tag-pink { background: rgba(236,72,153,0.15); color: #f472b6; }
+
+        .kanban-card-meta {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
+        .kanban-card-meta span {
+            display: flex;
+            align-items: center;
+            gap: 0.15rem;
+        }
+        .kanban-csv-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            margin-top: 0.35rem;
+            padding: 0.2rem 0.5rem;
+            background: rgba(20, 184, 166, 0.1);
+            color: var(--accent3-hover);
+            border-radius: 4px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            border: none;
+        }
+        .kanban-csv-link:hover { background: rgba(20, 184, 166, 0.2); }
+
+        /* Modal */
+        .kanban-modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(4px);
+        }
+        .kanban-modal-overlay.visible { display: flex; }
+        .kanban-modal {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            width: 90%;
+            max-width: 500px;
+            max-height: 85vh;
+            overflow-y: auto;
+            padding: 1.5rem;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        .kanban-modal h3 {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+        .kanban-modal-field {
+            margin-bottom: 1rem;
+        }
+        .kanban-modal-field label {
+            display: block;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.3rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+        .kanban-modal-field input,
+        .kanban-modal-field textarea {
+            width: 100%;
+            padding: 0.6rem 0.8rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-size: 0.85rem;
+            outline: none;
+            transition: var(--transition);
+            font-family: inherit;
+        }
+        .kanban-modal-field input:focus,
+        .kanban-modal-field textarea:focus {
+            border-color: var(--accent4);
+            box-shadow: 0 0 0 3px var(--accent4-subtle);
+        }
+        .kanban-modal-field input::placeholder,
+        .kanban-modal-field textarea::placeholder { color: #404040; }
+        .kanban-modal-actions {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+            margin-top: 1.5rem;
+        }
+        .kanban-btn-save {
+            padding: 0.6rem 1.2rem;
+            background: var(--accent4);
+            border: none;
+            border-radius: var(--radius-sm);
+            color: #fff;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .kanban-btn-save:hover {
+            background: var(--accent4-hover);
+            box-shadow: 0 3px 10px var(--accent4-glow);
+        }
+        .kanban-btn-cancel {
+            padding: 0.6rem 1.2rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .kanban-btn-cancel:hover {
+            border-color: var(--border-hover);
+            color: var(--text-primary);
+        }
+        .kanban-btn-delete {
+            padding: 0.6rem 1.2rem;
+            background: none;
+            border: 1px solid rgba(239,68,68,0.3);
+            border-radius: var(--radius-sm);
+            color: var(--error);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: var(--transition);
+            margin-right: auto;
+        }
+        .kanban-btn-delete:hover {
+            background: rgba(239,68,68,0.1);
+            border-color: var(--error);
+        }
+        .kanban-link-row {
+            display: flex;
+            gap: 0.4rem;
+            align-items: center;
+            margin-bottom: 0.3rem;
+        }
+        .kanban-link-row input { flex: 1; }
+        .kanban-link-remove {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 1rem;
+            padding: 0.3rem;
+            transition: var(--transition);
+        }
+        .kanban-link-remove:hover { color: var(--error); }
+        .kanban-add-link-btn {
+            background: none;
+            border: 1px dashed var(--border);
+            color: var(--text-muted);
+            padding: 0.4rem;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-size: 0.75rem;
+            transition: var(--transition);
+            margin-top: 0.3rem;
+            width: 100%;
+        }
+        .kanban-add-link-btn:hover {
+            border-color: var(--accent4);
+            color: var(--accent4-hover);
+        }
+        .kanban-tag-selector {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+        }
+        .kanban-tag-option {
+            padding: 0.25rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.72rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            opacity: 0.4;
+            border: 1px solid transparent;
+        }
+        .kanban-tag-option.selected {
+            opacity: 1;
+            border-color: rgba(255,255,255,0.15);
+        }
+
+        @media (max-width: 600px) {
+            .kanban-column { min-width: 180px; flex: 1 0 180px; }
+            .kanban-modal { width: 95%; padding: 1rem; }
+        }
     </style>
 </head>
 <body>
@@ -797,6 +1135,9 @@
             </div>
             <div class="tab" onclick="switchTab('csv')">
                 <span class="tab-icon">📋</span> CSV Shopify
+            </div>
+            <div class="tab" onclick="switchTab('pipeline')">
+                <span class="tab-icon">🚀</span> Pipeline
             </div>
         </div>
 
@@ -1170,6 +1511,60 @@
 
         </div><!-- /tab-csv -->
 
+        <!-- ═══════ ABA 4: PIPELINE KANBAN ═══════ -->
+        <div class="tab-content" id="tab-pipeline">
+            <div class="kanban-board" id="kanbanBoard"></div>
+        </div>
+
+    </div>
+
+    <!-- Kanban Card Modal (outside container) -->
+    <div class="kanban-modal-overlay" id="kanbanModalOverlay" onclick="kanbanCloseModal(event)">
+        <div class="kanban-modal" onclick="event.stopPropagation()">
+            <h3 id="kanbanModalTitle">Novo Card</h3>
+
+            <div class="kanban-modal-field">
+                <label>Nome do Produto</label>
+                <input type="text" id="kanbanCardName" placeholder="Ex: Luminaria Solar LED">
+            </div>
+
+            <div class="kanban-modal-field">
+                <label>Notas</label>
+                <textarea id="kanbanCardNotes" rows="2" placeholder="Observacoes..."></textarea>
+            </div>
+
+            <div class="kanban-modal-field">
+                <label>Links</label>
+                <div id="kanbanLinksList"></div>
+                <button class="kanban-add-link-btn" onclick="kanbanAddLinkField()">+ Adicionar link</button>
+            </div>
+
+            <div class="kanban-modal-field">
+                <label>Videos (URLs)</label>
+                <div id="kanbanVideosList"></div>
+                <button class="kanban-add-link-btn" onclick="kanbanAddVideoField()">+ Adicionar video</button>
+            </div>
+
+            <div class="kanban-modal-field">
+                <label>Tags</label>
+                <div class="kanban-tag-selector" id="kanbanTagSelector"></div>
+            </div>
+
+            <div class="kanban-modal-field" id="kanbanCsvLinkField" style="display:none;">
+                <label>Integracao CSV</label>
+                <button class="kanban-csv-link" onclick="kanbanGoToCSV()" style="font-size:0.82rem; padding:0.4rem 0.8rem;">
+                    📋 Ir para CSV Shopify para carregar dados
+                </button>
+            </div>
+
+            <div class="kanban-modal-actions">
+                <button class="kanban-btn-delete" id="kanbanBtnDelete" onclick="kanbanDeleteCard()" style="display:none;">
+                    Excluir
+                </button>
+                <button class="kanban-btn-cancel" onclick="kanbanCloseModal()">Cancelar</button>
+                <button class="kanban-btn-save" onclick="kanbanSaveCard()">Salvar</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -1398,7 +1793,7 @@
 
         // ─── Tabs ───
         function switchTab(tab) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active', 'active-green', 'active-teal'));
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active', 'active-green', 'active-teal', 'active-amber'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
 
             if (tab === 'traduzir') {
@@ -1407,6 +1802,9 @@
                 document.querySelectorAll('.tab')[1].classList.add('active-green');
             } else if (tab === 'csv') {
                 document.querySelectorAll('.tab')[2].classList.add('active-teal');
+            } else if (tab === 'pipeline') {
+                document.querySelectorAll('.tab')[3].classList.add('active-amber');
+                kanbanRender();
             }
             document.getElementById('tab-' + tab).classList.add('active');
         }
@@ -1822,6 +2220,288 @@
             document.getElementById('csvPhase1').classList.add('visible');
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
+
+        // ─── Pipeline Kanban ───
+        const KANBAN_KEY = 'kanban_pipeline';
+        const KANBAN_COLS = [
+            { id: 'ideias',   title: 'Ideias',   icon: '💡' },
+            { id: 'pesquisa', title: 'Pesquisa', icon: '🔍' },
+            { id: 'criativo', title: 'Criativo', icon: '🎨' },
+            { id: 'testando', title: 'Testando', icon: '🧪' },
+            { id: 'escala',   title: 'Escala',   icon: '📈' }
+        ];
+        const KANBAN_TAGS = [
+            { id: 'winner',      label: 'Winner',      color: 'green' },
+            { id: 'high-margin', label: 'High Margin',  color: 'teal' },
+            { id: 'low-cost',    label: 'Low Cost',     color: 'blue' },
+            { id: 'saturated',   label: 'Saturated',    color: 'red' },
+            { id: 'trending',    label: 'Trending',     color: 'orange' },
+            { id: 'seasonal',    label: 'Seasonal',     color: 'purple' },
+            { id: 'evergreen',   label: 'Evergreen',    color: 'teal' },
+            { id: 'high-ticket', label: 'High Ticket',  color: 'pink' }
+        ];
+
+        let kanbanCards = [];
+        let kanbanEditingId = null;
+        let kanbanDraggedId = null;
+
+        function kanbanLoad() {
+            try {
+                const d = JSON.parse(localStorage.getItem(KANBAN_KEY));
+                return d && Array.isArray(d.cards) ? d.cards : [];
+            } catch { return []; }
+        }
+        function kanbanSave() {
+            localStorage.setItem(KANBAN_KEY, JSON.stringify({ cards: kanbanCards }));
+        }
+
+        function kanbanEscape(str) {
+            const d = document.createElement('div');
+            d.textContent = str;
+            return d.innerHTML;
+        }
+
+        function kanbanRender() {
+            const board = document.getElementById('kanbanBoard');
+            if (!board) return;
+            board.innerHTML = '';
+
+            KANBAN_COLS.forEach(col => {
+                const colCards = kanbanCards
+                    .filter(c => c.columnId === col.id)
+                    .sort((a, b) => a.order - b.order);
+
+                const colEl = document.createElement('div');
+                colEl.className = 'kanban-column';
+                colEl.innerHTML = `
+                    <div class="kanban-column-header">
+                        <div class="kanban-column-title">
+                            ${col.icon} ${col.title}
+                            <span class="kanban-column-count">${colCards.length}</span>
+                        </div>
+                        <button class="kanban-add-btn" onclick="kanbanOpenModal('${col.id}')" title="Adicionar card">+</button>
+                    </div>
+                    <div class="kanban-cards" data-column="${col.id}"></div>
+                `;
+
+                const container = colEl.querySelector('.kanban-cards');
+                container.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+                container.addEventListener('dragenter', e => { e.preventDefault(); container.classList.add('drag-over'); });
+                container.addEventListener('dragleave', e => { if (!container.contains(e.relatedTarget)) container.classList.remove('drag-over'); });
+                container.addEventListener('drop', e => {
+                    e.preventDefault();
+                    container.classList.remove('drag-over');
+                    if (!kanbanDraggedId) return;
+                    const card = kanbanCards.find(c => c.id === kanbanDraggedId);
+                    if (!card) return;
+                    card.columnId = col.id;
+                    card.updatedAt = new Date().toISOString();
+                    const siblings = kanbanCards.filter(c => c.columnId === col.id && c.id !== card.id);
+                    card.order = siblings.length > 0 ? Math.max(...siblings.map(c => c.order)) + 1 : 0;
+                    kanbanSave();
+                    kanbanRender();
+                });
+
+                colCards.forEach(card => {
+                    const el = document.createElement('div');
+                    el.className = 'kanban-card';
+                    el.draggable = true;
+                    el.dataset.cardId = card.id;
+
+                    el.addEventListener('dragstart', e => {
+                        kanbanDraggedId = card.id;
+                        el.classList.add('dragging');
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', card.id);
+                    });
+                    el.addEventListener('dragend', () => {
+                        el.classList.remove('dragging');
+                        kanbanDraggedId = null;
+                        document.querySelectorAll('.kanban-cards.drag-over').forEach(z => z.classList.remove('drag-over'));
+                    });
+                    el.addEventListener('click', () => kanbanOpenModal(col.id, card.id));
+
+                    const tagsHtml = (card.tags || []).map(tid => {
+                        const t = KANBAN_TAGS.find(x => x.id === tid);
+                        return t ? `<span class="kanban-tag kanban-tag-${t.color}">${t.label}</span>` : '';
+                    }).join('');
+
+                    const lc = (card.links || []).length;
+                    const vc = (card.videos || []).length;
+                    let meta = '';
+                    if (lc) meta += `<span>🔗 ${lc}</span>`;
+                    if (vc) meta += `<span>🎬 ${vc}</span>`;
+
+                    let csvBtn = '';
+                    if (col.id === 'testando') {
+                        csvBtn = `<button class="kanban-csv-link" onclick="event.stopPropagation(); kanbanGoToCSV();">📋 CSV</button>`;
+                    }
+
+                    el.innerHTML = `
+                        ${tagsHtml ? `<div class="kanban-card-tags">${tagsHtml}</div>` : ''}
+                        <div class="kanban-card-title">${kanbanEscape(card.title)}</div>
+                        ${card.notes ? `<div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:0.3rem;">${kanbanEscape(card.notes).substring(0, 60)}${card.notes.length > 60 ? '...' : ''}</div>` : ''}
+                        ${meta ? `<div class="kanban-card-meta">${meta}</div>` : ''}
+                        ${csvBtn}
+                    `;
+                    container.appendChild(el);
+                });
+
+                board.appendChild(colEl);
+            });
+        }
+
+        function kanbanOpenModal(columnId, cardId) {
+            kanbanEditingId = cardId || null;
+            const overlay = document.getElementById('kanbanModalOverlay');
+            overlay.dataset.columnId = columnId;
+
+            if (cardId) {
+                const card = kanbanCards.find(c => c.id === cardId);
+                if (!card) return;
+                document.getElementById('kanbanModalTitle').textContent = 'Editar Card';
+                document.getElementById('kanbanCardName').value = card.title;
+                document.getElementById('kanbanCardNotes').value = card.notes || '';
+                document.getElementById('kanbanBtnDelete').style.display = '';
+
+                const ll = document.getElementById('kanbanLinksList');
+                ll.innerHTML = '';
+                (card.links || []).forEach(l => kanbanAddLinkField(l.url));
+                if (!(card.links || []).length) kanbanAddLinkField();
+
+                const vl = document.getElementById('kanbanVideosList');
+                vl.innerHTML = '';
+                (card.videos || []).forEach(v => kanbanAddVideoField(v.url));
+                if (!(card.videos || []).length) kanbanAddVideoField();
+
+                kanbanRenderTagSelector(card.tags || []);
+                document.getElementById('kanbanCsvLinkField').style.display = card.columnId === 'testando' ? '' : 'none';
+            } else {
+                document.getElementById('kanbanModalTitle').textContent = 'Novo Card';
+                document.getElementById('kanbanCardName').value = '';
+                document.getElementById('kanbanCardNotes').value = '';
+                document.getElementById('kanbanBtnDelete').style.display = 'none';
+                document.getElementById('kanbanLinksList').innerHTML = '';
+                kanbanAddLinkField();
+                document.getElementById('kanbanVideosList').innerHTML = '';
+                kanbanAddVideoField();
+                kanbanRenderTagSelector([]);
+                document.getElementById('kanbanCsvLinkField').style.display = columnId === 'testando' ? '' : 'none';
+            }
+
+            overlay.classList.add('visible');
+            document.getElementById('kanbanCardName').focus();
+        }
+
+        function kanbanCloseModal(e) {
+            if (e && e.target !== e.currentTarget) return;
+            document.getElementById('kanbanModalOverlay').classList.remove('visible');
+            kanbanEditingId = null;
+        }
+
+        function kanbanSaveCard() {
+            const title = document.getElementById('kanbanCardName').value.trim();
+            if (!title) {
+                document.getElementById('kanbanCardName').style.borderColor = 'var(--error)';
+                return;
+            }
+            document.getElementById('kanbanCardName').style.borderColor = '';
+
+            const notes = document.getElementById('kanbanCardNotes').value.trim();
+            const columnId = document.getElementById('kanbanModalOverlay').dataset.columnId;
+
+            const links = [...document.querySelectorAll('#kanbanLinksList input')]
+                .map(i => i.value.trim()).filter(Boolean).map(url => ({ url }));
+            const videos = [...document.querySelectorAll('#kanbanVideosList input')]
+                .map(i => i.value.trim()).filter(Boolean).map(url => ({ url }));
+            const tags = [...document.querySelectorAll('.kanban-tag-option.selected')]
+                .map(el => el.dataset.tagId);
+
+            if (kanbanEditingId) {
+                const card = kanbanCards.find(c => c.id === kanbanEditingId);
+                if (card) {
+                    card.title = title;
+                    card.notes = notes;
+                    card.links = links;
+                    card.videos = videos;
+                    card.tags = tags;
+                    card.updatedAt = new Date().toISOString();
+                }
+            } else {
+                const colCards = kanbanCards.filter(c => c.columnId === columnId);
+                kanbanCards.push({
+                    id: 'card_' + Date.now(),
+                    columnId,
+                    title,
+                    notes,
+                    links,
+                    videos,
+                    tags,
+                    order: colCards.length,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                });
+            }
+
+            kanbanSave();
+            kanbanRender();
+            kanbanCloseModal();
+        }
+
+        function kanbanDeleteCard() {
+            if (!kanbanEditingId) return;
+            if (!confirm('Excluir este card?')) return;
+            kanbanCards = kanbanCards.filter(c => c.id !== kanbanEditingId);
+            kanbanSave();
+            kanbanRender();
+            kanbanCloseModal();
+        }
+
+        function kanbanAddLinkField(value) {
+            const list = document.getElementById('kanbanLinksList');
+            const row = document.createElement('div');
+            row.className = 'kanban-link-row';
+            row.innerHTML = `
+                <input type="url" placeholder="https://..." value="${value || ''}">
+                <button class="kanban-link-remove" onclick="this.parentElement.remove()" title="Remover">&times;</button>
+            `;
+            list.appendChild(row);
+        }
+
+        function kanbanAddVideoField(value) {
+            const list = document.getElementById('kanbanVideosList');
+            const row = document.createElement('div');
+            row.className = 'kanban-link-row';
+            row.innerHTML = `
+                <input type="url" placeholder="https://youtube.com/..." value="${value || ''}">
+                <button class="kanban-link-remove" onclick="this.parentElement.remove()" title="Remover">&times;</button>
+            `;
+            list.appendChild(row);
+        }
+
+        function kanbanRenderTagSelector(selectedTags) {
+            const container = document.getElementById('kanbanTagSelector');
+            container.innerHTML = '';
+            KANBAN_TAGS.forEach(tag => {
+                const el = document.createElement('span');
+                el.className = `kanban-tag-option kanban-tag-${tag.color}${selectedTags.includes(tag.id) ? ' selected' : ''}`;
+                el.dataset.tagId = tag.id;
+                el.textContent = tag.label;
+                el.onclick = () => el.classList.toggle('selected');
+                container.appendChild(el);
+            });
+        }
+
+        function kanbanGoToCSV() {
+            switchTab('csv');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // Init Kanban
+        kanbanCards = kanbanLoad();
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') kanbanCloseModal();
+        });
     </script>
 </body>
 </html>
