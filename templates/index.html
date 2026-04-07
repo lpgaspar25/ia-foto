@@ -629,6 +629,71 @@
         .text-indicator.has-text { color: var(--success); }
         .text-indicator.no-text { color: var(--text-muted); }
 
+        /* CSV Source Toggle */
+        .csv-source-toggle {
+            display: flex;
+            gap: 0.5rem;
+        }
+        .csv-source-btn {
+            flex: 1;
+            padding: 0.85rem 1rem;
+            background: var(--bg-input);
+            border: 2px solid var(--border);
+            color: var(--text-secondary);
+            border-radius: var(--radius-sm);
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .csv-source-btn:hover {
+            border-color: var(--border-hover);
+            color: var(--text-primary);
+        }
+        .csv-source-btn.active {
+            border-color: var(--accent3);
+            background: var(--accent3-subtle);
+            color: var(--accent3-hover);
+            font-weight: 600;
+        }
+
+        /* Shopify Connect Form */
+        .shopify-connect-form {
+            padding: 0.5rem 0;
+        }
+        .shopify-field label {
+            display: block;
+            color: var(--text-secondary);
+            font-size: 0.82rem;
+            font-weight: 600;
+            margin-bottom: 0.4rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .shopify-field input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            transition: var(--transition);
+        }
+        .shopify-field input:focus {
+            outline: none;
+            border-color: var(--accent3);
+            box-shadow: 0 0 0 3px var(--accent3-glow);
+        }
+        .shopify-field input::placeholder {
+            color: var(--text-muted);
+        }
+        .shopify-hint {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            margin-top: 0.3rem;
+        }
+
         .csv-checkbox {
             width: 18px; height: 18px;
             accent-color: var(--accent3);
@@ -998,39 +1063,84 @@
         <!-- ═══════ ABA 3: CSV SHOPIFY ═══════ -->
         <div class="tab-content" id="tab-csv">
 
-            <!-- Fase 1: Upload CSV -->
+            <!-- Fase 1: Upload CSV ou Conectar Loja -->
             <div class="csv-phase visible" id="csvPhase1">
+
+                <!-- Toggle: CSV Upload vs Shopify API -->
                 <div class="card">
-                    <h2>Upload CSV Shopify</h2>
-                    <div class="csv-upload-area" id="csvUploadArea" onclick="document.getElementById('csvFileInput').click()">
-                        <div id="csvPlaceholder">
-                            <div class="upload-icon">📋</div>
-                            <div class="upload-text">
-                                Arraste seu CSV aqui ou <span style="color:var(--accent3-hover); font-weight:500;">clique para selecionar</span>
-                            </div>
-                            <div class="upload-text" style="margin-top:0.3rem; font-size:0.78rem;">
-                                Exportado do Shopify (products_export.csv)
-                            </div>
-                        </div>
-                        <div id="csvFileInfo" style="display:none;">
-                            <div style="font-size:1.5rem; margin-bottom:0.5rem;">📄</div>
-                            <div style="color:#fff; font-weight:500;" id="csvFileName"></div>
-                            <div style="color:var(--text-secondary); font-size:0.8rem; margin-top:0.2rem;" id="csvFileSize"></div>
-                        </div>
-                        <input type="file" id="csvFileInput" accept=".csv">
+                    <div class="csv-source-toggle">
+                        <button class="csv-source-btn active" id="srcBtnCsv" onclick="switchCsvSource('csv')">
+                            📋 Upload CSV
+                        </button>
+                        <button class="csv-source-btn" id="srcBtnShopify" onclick="switchCsvSource('shopify')">
+                            🏪 Conectar Loja Shopify
+                        </button>
                     </div>
                 </div>
 
-                <button class="btn-csv" id="btnAnalisar" onclick="analisarCSV()" disabled>
-                    Analisar CSV
-                </button>
+                <!-- Opção A: Upload CSV (existente) -->
+                <div id="csvSourceUpload">
+                    <div class="card">
+                        <h2>Upload CSV Shopify</h2>
+                        <div class="csv-upload-area" id="csvUploadArea" onclick="document.getElementById('csvFileInput').click()">
+                            <div id="csvPlaceholder">
+                                <div class="upload-icon">📋</div>
+                                <div class="upload-text">
+                                    Arraste seu CSV aqui ou <span style="color:var(--accent3-hover); font-weight:500;">clique para selecionar</span>
+                                </div>
+                                <div class="upload-text" style="margin-top:0.3rem; font-size:0.78rem;">
+                                    Exportado do Shopify (products_export.csv)
+                                </div>
+                            </div>
+                            <div id="csvFileInfo" style="display:none;">
+                                <div style="font-size:1.5rem; margin-bottom:0.5rem;">📄</div>
+                                <div style="color:#fff; font-weight:500;" id="csvFileName"></div>
+                                <div style="color:var(--text-secondary); font-size:0.8rem; margin-top:0.2rem;" id="csvFileSize"></div>
+                            </div>
+                            <input type="file" id="csvFileInput" accept=".csv">
+                        </div>
+                    </div>
+
+                    <button class="btn-csv" id="btnAnalisar" onclick="analisarCSV()" disabled>
+                        Analisar CSV
+                    </button>
+                </div>
+
+                <!-- Opção B: Conectar Loja Shopify -->
+                <div id="csvSourceShopify" style="display:none;">
+                    <div class="card">
+                        <h2>Conectar Loja Shopify</h2>
+                        <div class="shopify-connect-form">
+                            <div class="shopify-field">
+                                <label>URL da Loja</label>
+                                <input type="text" id="shopifyStoreUrl" placeholder="minhaloja.myshopify.com">
+                                <div class="shopify-hint">Ex: minhaloja.myshopify.com</div>
+                            </div>
+                            <div class="shopify-field" style="margin-top:1rem;">
+                                <label>Access Token (Admin API)</label>
+                                <input type="password" id="shopifyToken" placeholder="shpat_xxxxxxxxxxxxx">
+                                <div class="shopify-hint">
+                                    Gere em: Shopify Admin → Settings → Apps → Develop apps → Admin API access token
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Status da conexão -->
+                        <div id="shopifyConnectStatus" style="display:none; margin-top:1rem; padding:0.8rem; border-radius:var(--radius-sm); font-size:0.85rem;">
+                        </div>
+                    </div>
+
+                    <button class="btn-csv" id="btnConectar" onclick="conectarShopify()" disabled>
+                        Conectar e Extrair Produtos
+                    </button>
+                </div>
 
                 <div class="loading" id="csvLoading1">
                     <div class="spinner" style="border-top-color: var(--accent3);"></div>
-                    <div class="loading-text">
+                    <div class="loading-text" id="csvLoading1Text">
                         Analisando imagens com <span class="loading-lang" style="color:var(--accent3-hover);">GPT-4o Vision</span>
                     </div>
-                    <div class="loading-text" style="margin-top:0.3rem; font-size:0.8rem; color:#666;">
+                    <div class="loading-text" style="margin-top:0.3rem; font-size:0.8rem; color:#666;" id="csvLoading1Sub">
                         Baixando e detectando texto nas imagens...
                     </div>
                 </div>
@@ -1164,6 +1274,23 @@
                     <a class="btn-csv" id="csvDownloadBtn" href="#" download style="display:block; text-align:center; text-decoration:none;">
                         ⬇ Baixar ZIP com traduções
                     </a>
+
+                    <!-- Publicar na Shopify (só aparece se conectou via API) -->
+                    <div id="shopifyPublishArea" style="display:none; margin-top:1rem;">
+                        <div class="card" style="margin-bottom:0;">
+                            <h2>🏪 Publicar na Shopify</h2>
+                            <p style="color:var(--text-secondary); font-size:0.85rem; margin-bottom:1rem;">
+                                Enviar traduções diretamente para sua loja Shopify. Selecione o idioma para publicar:
+                            </p>
+                            <div id="shopifyLangSelector" class="csv-idiomas-grid" style="margin-bottom:1rem;"></div>
+                            <button class="btn-csv" id="btnPublicar" onclick="publicarShopify()" disabled style="background:#059669;">
+                                Publicar Selecionado na Shopify
+                            </button>
+                            <div id="shopifyPublishStatus" style="display:none; margin-top:1rem; padding:0.8rem; border-radius:var(--radius-sm); font-size:0.85rem;">
+                            </div>
+                        </div>
+                    </div>
+
                     <button class="btn-novo" onclick="novaAnaliseCSV()" style="margin-top:1rem;">← Nova análise</button>
                 </div>
             </div>
@@ -1496,6 +1623,199 @@
         let csvFile = null;
         let csvJobId = null;
         let csvImages = [];
+        let csvSourceMode = 'csv'; // 'csv' or 'shopify'
+        let shopifyConnected = false;
+        let shopifyStoreUrl = '';
+        let shopifyToken = '';
+        let csvTranslatedLangs = []; // idiomas que foram traduzidos
+
+        // ─── CSV Source Toggle ───
+        function switchCsvSource(mode) {
+            csvSourceMode = mode;
+            document.getElementById('srcBtnCsv').classList.toggle('active', mode === 'csv');
+            document.getElementById('srcBtnShopify').classList.toggle('active', mode === 'shopify');
+            document.getElementById('csvSourceUpload').style.display = mode === 'csv' ? '' : 'none';
+            document.getElementById('csvSourceShopify').style.display = mode === 'shopify' ? '' : 'none';
+        }
+
+        // ─── Shopify Connect ───
+        function checkShopifyReady() {
+            const url = document.getElementById('shopifyStoreUrl').value.trim();
+            const token = document.getElementById('shopifyToken').value.trim();
+            document.getElementById('btnConectar').disabled = !(url && token);
+        }
+
+        // Attach input listeners for Shopify fields
+        document.addEventListener('DOMContentLoaded', () => {
+            const urlInput = document.getElementById('shopifyStoreUrl');
+            const tokenInput = document.getElementById('shopifyToken');
+            if (urlInput) urlInput.addEventListener('input', checkShopifyReady);
+            if (tokenInput) tokenInput.addEventListener('input', checkShopifyReady);
+        });
+
+        async function conectarShopify() {
+            const storeUrl = document.getElementById('shopifyStoreUrl').value.trim();
+            const token = document.getElementById('shopifyToken').value.trim();
+            if (!storeUrl || !token) return;
+
+            const statusEl = document.getElementById('shopifyConnectStatus');
+            const btn = document.getElementById('btnConectar');
+
+            // Step 1: Validate connection
+            btn.disabled = true;
+            btn.textContent = 'Conectando...';
+            statusEl.style.display = 'block';
+            statusEl.style.background = 'var(--bg-input)';
+            statusEl.style.color = 'var(--text-secondary)';
+            statusEl.textContent = 'Verificando credenciais...';
+
+            try {
+                const resp = await fetch('/shopify/conectar', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ store_url: storeUrl, token: token }),
+                });
+                const data = await resp.json();
+
+                if (data.erro) {
+                    statusEl.style.background = 'rgba(239,68,68,0.1)';
+                    statusEl.style.color = '#ef4444';
+                    statusEl.textContent = data.erro;
+                    btn.disabled = false;
+                    btn.textContent = 'Conectar e Extrair Produtos';
+                    return;
+                }
+
+                // Connection valid — show product count and start extraction
+                shopifyStoreUrl = data.store_url;
+                shopifyToken = token;
+                shopifyConnected = true;
+
+                statusEl.style.background = 'rgba(16,185,129,0.1)';
+                statusEl.style.color = '#10b981';
+                statusEl.textContent = `Conectado! ${data.product_count} produtos encontrados. Extraindo...`;
+
+                // Step 2: Extract products (shows loading)
+                document.getElementById('csvLoading1').classList.add('visible');
+                document.getElementById('csvLoading1Text').innerHTML =
+                    'Extraindo produtos da loja <span class="loading-lang" style="color:var(--accent3-hover);">Shopify API</span>';
+                document.getElementById('csvLoading1Sub').textContent =
+                    'Baixando imagens e detectando texto...';
+
+                const resp2 = await fetch('/shopify/extrair', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ store_url: storeUrl, token: token }),
+                });
+                const data2 = await resp2.json();
+
+                if (data2.erro) {
+                    alert('Erro: ' + data2.erro);
+                    return;
+                }
+
+                // Same flow as analisarCSV — show Phase 2
+                csvJobId = data2.job_id;
+                csvImages = data2.images;
+
+                const textCount = data2.images.filter(i => i.has_text).length;
+                document.getElementById('csvSummary').innerHTML = `
+                    <div class="csv-summary-item"><div class="value">${data2.product_count}</div><div class="label">Produtos</div></div>
+                    <div class="csv-summary-item"><div class="value">${data2.total_images}</div><div class="label">Imagens</div></div>
+                    <div class="csv-summary-item"><div class="value">${textCount}</div><div class="label">Com texto</div></div>
+                `;
+
+                const tbody = document.getElementById('csvImageTableBody');
+                tbody.innerHTML = '';
+                data2.images.forEach(img => {
+                    const badgeClass = img.source === 'gallery' ? 'badge-gallery' :
+                                       img.source === 'variant' ? 'badge-variant' : 'badge-description';
+                    const badgeLabel = img.source === 'gallery' ? 'Galeria' :
+                                       img.source === 'variant' ? 'Variante' : 'Descrição';
+                    const textClass = img.has_text ? 'has-text' : 'no-text';
+                    const textLabel = img.has_text ? '✅ Tem texto' : '⚪ Sem texto';
+
+                    tbody.innerHTML += `
+                        <tr>
+                            <td><input type="checkbox" class="csv-checkbox" data-index="${img.index}" data-has-text="${img.has_text}" ${img.has_text ? 'checked' : ''} onchange="updateCsvTraduzirBtn()"></td>
+                            <td>${img.thumbnail ? `<img class="img-review-thumb" src="${img.thumbnail}">` : '<div style="width:60px;height:60px;background:#222;border-radius:6px;"></div>'}</td>
+                            <td><span class="badge ${badgeClass}">${badgeLabel}</span></td>
+                            <td style="color:var(--text-secondary);">${img.handle}</td>
+                            <td><span class="text-indicator ${textClass}">${textLabel}</span></td>
+                            <td style="color:var(--text-muted); font-size:0.78rem; max-width:200px;">${img.description || (img.error ? '⚠️ Erro ao baixar' : '')}</td>
+                        </tr>
+                    `;
+                });
+
+                document.getElementById('csvPhase1').classList.remove('visible');
+                document.getElementById('csvPhase2').classList.add('visible');
+                updateCsvTraduzirBtn();
+
+            } catch (err) {
+                statusEl.style.background = 'rgba(239,68,68,0.1)';
+                statusEl.style.color = '#ef4444';
+                statusEl.textContent = 'Erro de conexão: ' + err.message;
+            } finally {
+                document.getElementById('csvLoading1').classList.remove('visible');
+                btn.disabled = false;
+                btn.textContent = 'Conectar e Extrair Produtos';
+            }
+        }
+
+        // ─── Publicar na Shopify ───
+        let selectedPublishLang = '';
+
+        function selectPublishLang(lang) {
+            selectedPublishLang = lang;
+            document.querySelectorAll('.publish-lang-btn').forEach(btn => {
+                btn.classList.toggle('selected', btn.dataset.lang === lang);
+            });
+            document.getElementById('btnPublicar').disabled = !lang;
+        }
+
+        async function publicarShopify() {
+            if (!selectedPublishLang || !csvJobId) return;
+
+            const btn = document.getElementById('btnPublicar');
+            const statusEl = document.getElementById('shopifyPublishStatus');
+
+            btn.disabled = true;
+            btn.textContent = 'Publicando...';
+            statusEl.style.display = 'block';
+            statusEl.style.background = 'var(--bg-input)';
+            statusEl.style.color = 'var(--text-secondary)';
+            statusEl.textContent = `Enviando traduções (${selectedPublishLang.toUpperCase()}) para Shopify...`;
+
+            try {
+                const resp = await fetch('/shopify/publicar', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ job_id: csvJobId, lang: selectedPublishLang }),
+                });
+                const data = await resp.json();
+
+                if (data.erro) {
+                    statusEl.style.background = 'rgba(239,68,68,0.1)';
+                    statusEl.style.color = '#ef4444';
+                    statusEl.textContent = data.erro;
+                } else {
+                    statusEl.style.background = 'rgba(16,185,129,0.1)';
+                    statusEl.style.color = '#10b981';
+                    let msg = `${data.updated} produto(s) atualizado(s) em ${data.language}!`;
+                    if (data.errors && data.errors.length > 0) {
+                        msg += ` (${data.errors.length} erro(s): ${data.errors.slice(0, 3).join(', ')})`;
+                    }
+                    statusEl.textContent = msg;
+                }
+            } catch (err) {
+                statusEl.style.background = 'rgba(239,68,68,0.1)';
+                statusEl.style.color = '#ef4444';
+                statusEl.textContent = 'Erro: ' + err.message;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Publicar Selecionado na Shopify';
+            }
+        }
 
         // Upload CSV
         const csvUploadArea = document.getElementById('csvUploadArea');
@@ -1684,6 +2004,9 @@
 
             if (langs.length === 0 || (imgs.length === 0 && !traduzirTexto)) return;
 
+            // Track translated languages
+            csvTranslatedLangs = [...langs];
+
             // Mostrar fase 3
             document.getElementById('csvPhase2').classList.remove('visible');
             document.getElementById('csvPhase3').classList.add('visible');
@@ -1708,6 +2031,26 @@
                     document.getElementById('csvDownloadBtn').href = `/csv/download/${csvJobId}`;
                     document.getElementById('csvDownloadArea').style.display = 'block';
                     document.getElementById('csvProgressLabel').textContent = 'Tradução concluída!';
+
+                    // Show Shopify publish area if connected via API
+                    if (shopifyConnected && csvTranslatedLangs.length > 0) {
+                        const publishArea = document.getElementById('shopifyPublishArea');
+                        publishArea.style.display = 'block';
+                        const langSelector = document.getElementById('shopifyLangSelector');
+                        langSelector.innerHTML = '';
+                        csvTranslatedLangs.forEach(lang => {
+                            const flag = FLAGS[lang] || '';
+                            const name = LANG_NAMES[lang] || lang;
+                            langSelector.innerHTML += `
+                                <label class="idioma-item publish-lang-btn" data-lang="${lang}" onclick="selectPublishLang('${lang}')">
+                                    <div class="idioma-check">✓</div>
+                                    <span class="idioma-flag">${flag}</span>
+                                    <span class="idioma-name">${name}</span>
+                                </label>
+                            `;
+                        });
+                    }
+
                     return;
                 }
 
@@ -1811,11 +2154,21 @@
             csvFile = null;
             csvJobId = null;
             csvImages = [];
+            csvTranslatedLangs = [];
+            selectedPublishLang = '';
             csvFileInput.value = '';
             document.getElementById('csvPlaceholder').style.display = '';
             document.getElementById('csvFileInfo').style.display = 'none';
             csvUploadArea.classList.remove('has-file');
             document.getElementById('btnAnalisar').disabled = true;
+
+            // Reset Shopify publish area
+            document.getElementById('shopifyPublishArea').style.display = 'none';
+            document.getElementById('shopifyPublishStatus').style.display = 'none';
+
+            // Reset Shopify connect status
+            const connectStatus = document.getElementById('shopifyConnectStatus');
+            if (connectStatus) connectStatus.style.display = 'none';
 
             document.getElementById('csvPhase3').classList.remove('visible');
             document.getElementById('csvPhase2').classList.remove('visible');
