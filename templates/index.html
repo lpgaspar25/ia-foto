@@ -694,6 +694,84 @@
             margin-top: 0.3rem;
         }
 
+        /* Product edit cards */
+        .product-edit-card {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 1.2rem;
+            margin-bottom: 0.75rem;
+            transition: var(--transition);
+        }
+        .product-edit-card:hover {
+            border-color: var(--border-hover);
+        }
+        .product-edit-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+        }
+        .product-edit-handle {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+        .product-edit-original {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            padding: 0.15rem 0.5rem;
+            background: var(--bg-elevated);
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .product-edit-original:hover {
+            color: var(--text-secondary);
+        }
+        .product-edit-field {
+            margin-bottom: 0.6rem;
+        }
+        .product-edit-field label {
+            display: block;
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.3rem;
+            font-weight: 600;
+        }
+        .product-edit-field input,
+        .product-edit-field textarea {
+            width: 100%;
+            padding: 0.6rem 0.8rem;
+            background: var(--bg-body);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 0.85rem;
+            font-family: inherit;
+            transition: var(--transition);
+        }
+        .product-edit-field input:focus,
+        .product-edit-field textarea:focus {
+            outline: none;
+            border-color: var(--accent3);
+            box-shadow: 0 0 0 3px var(--accent3-glow);
+        }
+        .product-edit-field textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+        .product-edit-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            font-size: 0.8rem;
+            color: var(--accent3-hover);
+            margin-bottom: 0.5rem;
+        }
+
         .csv-checkbox {
             width: 18px; height: 18px;
             accent-color: var(--accent3);
@@ -1277,14 +1355,58 @@
 
                     <!-- Publicar na Shopify (só aparece se conectou via API) -->
                     <div id="shopifyPublishArea" style="display:none; margin-top:1rem;">
-                        <div class="card" style="margin-bottom:0;">
+
+                        <!-- Idioma para publicar -->
+                        <div class="card">
                             <h2>🏪 Publicar na Shopify</h2>
                             <p style="color:var(--text-secondary); font-size:0.85rem; margin-bottom:1rem;">
-                                Enviar traduções diretamente para sua loja Shopify. Selecione o idioma para publicar:
+                                Selecione o idioma para revisar e publicar:
                             </p>
-                            <div id="shopifyLangSelector" class="csv-idiomas-grid" style="margin-bottom:1rem;"></div>
-                            <button class="btn-csv" id="btnPublicar" onclick="publicarShopify()" disabled style="background:#059669;">
-                                Publicar Selecionado na Shopify
+                            <div id="shopifyLangSelector" class="csv-idiomas-grid"></div>
+                        </div>
+
+                        <!-- Editar Produtos (aparece após selecionar idioma) -->
+                        <div id="shopifyEditArea" style="display:none;">
+
+                            <!-- Modelo de Tema -->
+                            <div class="card">
+                                <h2>Modelo de Tema <span style="font-weight:400; color:#666; text-transform:none;">(opcional)</span></h2>
+                                <div class="shopify-field">
+                                    <label>Template Suffix</label>
+                                    <div style="display:flex; gap:0.5rem; align-items:center;">
+                                        <select id="shopifyTemplateSelect" style="flex:1; padding:0.75rem 1rem; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary); font-size:0.9rem;">
+                                            <option value="">Padrão (sem suffix)</option>
+                                        </select>
+                                        <input type="text" id="shopifyTemplateCustom" placeholder="ou digite manualmente..." style="flex:1; padding:0.75rem 1rem; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary); font-size:0.9rem;">
+                                    </div>
+                                    <div class="shopify-hint">Define o layout do produto na loja. Ex: "traducao", "internacional"</div>
+                                </div>
+                            </div>
+
+                            <!-- Coleção -->
+                            <div class="card">
+                                <h2>Adicionar à Coleção <span style="font-weight:400; color:#666; text-transform:none;">(opcional)</span></h2>
+                                <select id="shopifyCollectionSelect" style="width:100%; padding:0.75rem 1rem; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary); font-size:0.9rem;">
+                                    <option value="">Nenhuma coleção</option>
+                                </select>
+                                <div class="shopify-hint" style="margin-top:0.3rem;">Os produtos serão adicionados a esta coleção após publicar.</div>
+                            </div>
+
+                            <!-- Tabela de edição de produtos -->
+                            <div class="card">
+                                <h2>Revisar Produtos</h2>
+                                <p style="color:var(--text-secondary); font-size:0.82rem; margin-bottom:1rem;">
+                                    Edite o nome e a descrição de cada produto antes de publicar:
+                                </p>
+                                <div id="shopifyProductsLoading" style="display:none; text-align:center; padding:1rem; color:var(--text-muted);">
+                                    <div class="spinner" style="border-top-color:var(--accent3); margin:0 auto 0.5rem;"></div>
+                                    Carregando produtos traduzidos...
+                                </div>
+                                <div id="shopifyProductsList"></div>
+                            </div>
+
+                            <button class="btn-csv" id="btnPublicar" onclick="publicarShopify()" style="background:#059669;">
+                                Publicar na Shopify
                             </button>
                             <div id="shopifyPublishStatus" style="display:none; margin-top:1rem; padding:0.8rem; border-radius:var(--radius-sm); font-size:0.85rem;">
                             </div>
@@ -1764,13 +1886,164 @@
 
         // ─── Publicar na Shopify ───
         let selectedPublishLang = '';
+        let shopifyCollections = [];
+        let shopifyTemplates = [];
+        let shopifyPreviewProducts = [];
 
         function selectPublishLang(lang) {
             selectedPublishLang = lang;
             document.querySelectorAll('.publish-lang-btn').forEach(btn => {
                 btn.classList.toggle('selected', btn.dataset.lang === lang);
             });
-            document.getElementById('btnPublicar').disabled = !lang;
+
+            if (lang) {
+                document.getElementById('shopifyEditArea').style.display = 'block';
+                loadShopifyPublishData(lang);
+            } else {
+                document.getElementById('shopifyEditArea').style.display = 'none';
+            }
+        }
+
+        async function loadShopifyPublishData(lang) {
+            // Load collections, templates, and product preview in parallel
+            const productsListEl = document.getElementById('shopifyProductsList');
+            const loadingEl = document.getElementById('shopifyProductsLoading');
+            productsListEl.innerHTML = '';
+            loadingEl.style.display = 'block';
+
+            try {
+                const [collectionsResp, templatesResp, productsResp] = await Promise.all([
+                    fetch('/shopify/colecoes', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ store_url: shopifyStoreUrl, token: shopifyToken }),
+                    }),
+                    fetch('/shopify/templates', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ store_url: shopifyStoreUrl, token: shopifyToken }),
+                    }),
+                    fetch('/shopify/preview-products', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ job_id: csvJobId, lang: lang }),
+                    }),
+                ]);
+
+                const collectionsData = await collectionsResp.json();
+                const templatesData = await templatesResp.json();
+                const productsData = await productsResp.json();
+
+                // Populate collections dropdown
+                shopifyCollections = collectionsData.collections || [];
+                const collSelect = document.getElementById('shopifyCollectionSelect');
+                collSelect.innerHTML = '<option value="">Nenhuma coleção</option>';
+                shopifyCollections.forEach(c => {
+                    const typeLabel = c.type === 'smart' ? ' (Smart)' : '';
+                    collSelect.innerHTML += `<option value="${c.id}">${c.title}${typeLabel}</option>`;
+                });
+
+                // Populate templates dropdown
+                shopifyTemplates = templatesData.templates || [];
+                const tplSelect = document.getElementById('shopifyTemplateSelect');
+                tplSelect.innerHTML = '<option value="">Padrão (sem suffix)</option>';
+                shopifyTemplates.forEach(t => {
+                    tplSelect.innerHTML += `<option value="${t}">${t}</option>`;
+                });
+
+                // Populate product editor
+                shopifyPreviewProducts = productsData.products || [];
+                renderProductEditor(shopifyPreviewProducts);
+
+            } catch (err) {
+                productsListEl.innerHTML = `<div style="color:#ef4444; padding:1rem;">Erro ao carregar dados: ${err.message}</div>`;
+            } finally {
+                loadingEl.style.display = 'none';
+            }
+        }
+
+        function renderProductEditor(products) {
+            const container = document.getElementById('shopifyProductsList');
+            container.innerHTML = '';
+
+            products.forEach((p, idx) => {
+                const card = document.createElement('div');
+                card.className = 'product-edit-card';
+                card.innerHTML = `
+                    <div class="product-edit-header">
+                        <span class="product-edit-handle">${p.handle}</span>
+                        <span class="product-edit-original" onclick="toggleOriginal(${idx})" title="Ver original">
+                            ver original
+                        </span>
+                    </div>
+                    <div id="originalPreview${idx}" style="display:none; margin-bottom:0.75rem; padding:0.6rem; background:var(--bg-elevated); border-radius:6px; font-size:0.78rem;">
+                        <div style="color:var(--text-muted); margin-bottom:0.3rem;"><strong>Título original:</strong> ${escapeHtml(p.original_title)}</div>
+                        <div style="color:var(--text-muted);"><strong>Descrição original:</strong> ${escapeHtml(truncateHtml(p.original_body_html, 200))}</div>
+                    </div>
+                    <div class="product-edit-field">
+                        <label>Título</label>
+                        <input type="text" id="editTitle_${idx}" value="${escapeAttr(p.translated_title)}" data-handle="${p.handle}">
+                    </div>
+                    <div class="product-edit-field">
+                        <label>Descrição (HTML)</label>
+                        <textarea id="editBody_${idx}" data-handle="${p.handle}">${escapeHtml(p.translated_body_html)}</textarea>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+
+            if (products.length === 0) {
+                container.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:1rem;">Nenhum produto para editar.</div>';
+            }
+        }
+
+        function toggleOriginal(idx) {
+            const el = document.getElementById(`originalPreview${idx}`);
+            el.style.display = el.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function escapeAttr(str) {
+            if (!str) return '';
+            return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function truncateHtml(str, maxLen) {
+            if (!str) return '';
+            // Strip HTML tags for preview
+            const stripped = str.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            return stripped.length > maxLen ? stripped.substring(0, maxLen) + '...' : stripped;
+        }
+
+        function getTemplateSuffix() {
+            const custom = document.getElementById('shopifyTemplateCustom').value.trim();
+            if (custom) return custom;
+            return document.getElementById('shopifyTemplateSelect').value;
+        }
+
+        function getProductEdits() {
+            const edits = {};
+            shopifyPreviewProducts.forEach((p, idx) => {
+                const titleEl = document.getElementById(`editTitle_${idx}`);
+                const bodyEl = document.getElementById(`editBody_${idx}`);
+                if (!titleEl || !bodyEl) return;
+
+                const newTitle = titleEl.value.trim();
+                const newBody = bodyEl.value.trim();
+
+                // Only include if changed from translated version
+                if (newTitle !== p.translated_title || newBody !== p.translated_body_html) {
+                    edits[p.handle] = {
+                        title: newTitle,
+                        body_html: newBody,
+                    };
+                }
+            });
+            return edits;
         }
 
         async function publicarShopify() {
@@ -1778,6 +2051,10 @@
 
             const btn = document.getElementById('btnPublicar');
             const statusEl = document.getElementById('shopifyPublishStatus');
+
+            const collectionId = document.getElementById('shopifyCollectionSelect').value;
+            const templateSuffix = getTemplateSuffix();
+            const productEdits = getProductEdits();
 
             btn.disabled = true;
             btn.textContent = 'Publicando...';
@@ -1790,7 +2067,13 @@
                 const resp = await fetch('/shopify/publicar', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ job_id: csvJobId, lang: selectedPublishLang }),
+                    body: JSON.stringify({
+                        job_id: csvJobId,
+                        lang: selectedPublishLang,
+                        collection_id: collectionId,
+                        template_suffix: templateSuffix,
+                        product_edits: productEdits,
+                    }),
                 });
                 const data = await resp.json();
 
@@ -1802,6 +2085,9 @@
                     statusEl.style.background = 'rgba(16,185,129,0.1)';
                     statusEl.style.color = '#10b981';
                     let msg = `${data.updated} produto(s) atualizado(s) em ${data.language}!`;
+                    if (data.collection_added > 0) {
+                        msg += ` ${data.collection_added} adicionado(s) à coleção.`;
+                    }
                     if (data.errors && data.errors.length > 0) {
                         msg += ` (${data.errors.length} erro(s): ${data.errors.slice(0, 3).join(', ')})`;
                     }
@@ -1813,7 +2099,7 @@
                 statusEl.textContent = 'Erro: ' + err.message;
             } finally {
                 btn.disabled = false;
-                btn.textContent = 'Publicar Selecionado na Shopify';
+                btn.textContent = 'Publicar na Shopify';
             }
         }
 
