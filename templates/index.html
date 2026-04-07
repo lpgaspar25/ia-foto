@@ -694,6 +694,201 @@
             margin-top: 0.3rem;
         }
 
+        /* Auth UI */
+        .user-bar {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+        .user-bar-info {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+        }
+        .user-bar-name {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .user-bar-btn {
+            padding: 0.4rem 0.9rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .user-bar-btn:hover {
+            border-color: var(--accent3);
+            color: var(--accent3-hover);
+        }
+        .user-bar-btn.primary {
+            background: var(--accent3);
+            border-color: var(--accent3);
+            color: #fff;
+        }
+        .user-bar-btn.primary:hover {
+            background: var(--accent3-hover);
+        }
+
+        /* Auth Modal */
+        .auth-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .auth-overlay.visible {
+            display: flex;
+        }
+        .auth-modal {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 2.5rem;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+            position: relative;
+        }
+        .auth-modal h2 {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 0.3rem;
+            text-transform: none;
+            letter-spacing: normal;
+        }
+        .auth-modal .auth-subtitle {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-bottom: 1.5rem;
+        }
+        .auth-field {
+            margin-bottom: 1rem;
+        }
+        .auth-field label {
+            display: block;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-bottom: 0.35rem;
+        }
+        .auth-field input {
+            width: 100%;
+            padding: 0.7rem 0.9rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            transition: var(--transition);
+        }
+        .auth-field input:focus {
+            outline: none;
+            border-color: var(--accent3);
+            box-shadow: 0 0 0 3px var(--accent3-glow);
+        }
+        .auth-btn {
+            width: 100%;
+            padding: 0.8rem;
+            background: var(--accent3);
+            border: none;
+            border-radius: var(--radius-sm);
+            color: #fff;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            margin-top: 0.5rem;
+        }
+        .auth-btn:hover { background: var(--accent3-hover); }
+        .auth-btn:disabled { background: #1e1e1e; color: #505050; cursor: not-allowed; }
+        .auth-error {
+            display: none;
+            padding: 0.6rem 0.8rem;
+            background: rgba(239,68,68,0.1);
+            border-radius: var(--radius-sm);
+            color: #ef4444;
+            font-size: 0.82rem;
+            margin-bottom: 1rem;
+        }
+        .auth-switch {
+            text-align: center;
+            margin-top: 1.2rem;
+            font-size: 0.82rem;
+            color: var(--text-muted);
+        }
+        .auth-switch a {
+            color: var(--accent3-hover);
+            cursor: pointer;
+            font-weight: 600;
+            text-decoration: none;
+        }
+        .auth-close {
+            position: absolute;
+            top: 1rem; right: 1rem;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1.3rem;
+            cursor: pointer;
+            padding: 0.3rem;
+        }
+        .auth-close:hover { color: var(--text-primary); }
+
+        /* Saved stores list */
+        .saved-stores {
+            margin-top: 1rem;
+        }
+        .saved-store-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.7rem 0.9rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .saved-store-item:hover {
+            border-color: var(--accent3);
+            background: var(--accent3-subtle);
+        }
+        .saved-store-item.active {
+            border-color: var(--accent3);
+            background: var(--accent3-subtle);
+        }
+        .saved-store-name {
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: var(--text-primary);
+        }
+        .saved-store-url {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+        .saved-store-remove {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1rem;
+            cursor: pointer;
+            padding: 0.3rem;
+        }
+        .saved-store-remove:hover { color: var(--error); }
+
         /* Product edit cards */
         .product-edit-card {
             background: var(--bg-input);
@@ -922,7 +1117,69 @@
     </style>
 </head>
 <body>
+    <!-- Auth Modal -->
+    <div class="auth-overlay" id="authOverlay" onclick="if(event.target===this)closeAuthModal()">
+        <div class="auth-modal">
+            <button class="auth-close" onclick="closeAuthModal()">&times;</button>
+
+            <!-- Login Form -->
+            <div id="authLogin">
+                <h2>Entrar</h2>
+                <div class="auth-subtitle">Acesse sua conta para conectar sua loja Shopify</div>
+                <div class="auth-error" id="loginError"></div>
+                <div class="auth-field">
+                    <label>Email</label>
+                    <input type="email" id="loginEmail" placeholder="seu@email.com">
+                </div>
+                <div class="auth-field">
+                    <label>Senha</label>
+                    <input type="password" id="loginPassword" placeholder="Sua senha">
+                </div>
+                <button class="auth-btn" id="btnLogin" onclick="doLogin()">Entrar</button>
+                <div class="auth-switch">
+                    Não tem conta? <a onclick="switchAuthForm('register')">Criar conta</a>
+                </div>
+            </div>
+
+            <!-- Register Form -->
+            <div id="authRegister" style="display:none;">
+                <h2>Criar Conta</h2>
+                <div class="auth-subtitle">Crie sua conta para salvar suas lojas Shopify</div>
+                <div class="auth-error" id="registerError"></div>
+                <div class="auth-field">
+                    <label>Nome</label>
+                    <input type="text" id="registerName" placeholder="Seu nome">
+                </div>
+                <div class="auth-field">
+                    <label>Email</label>
+                    <input type="email" id="registerEmail" placeholder="seu@email.com">
+                </div>
+                <div class="auth-field">
+                    <label>Senha</label>
+                    <input type="password" id="registerPassword" placeholder="Mínimo 6 caracteres">
+                </div>
+                <button class="auth-btn" id="btnRegister" onclick="doRegister()">Criar Conta</button>
+                <div class="auth-switch">
+                    Já tem conta? <a onclick="switchAuthForm('login')">Entrar</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="container">
+
+        <!-- User Bar -->
+        <div class="user-bar" id="userBar">
+            {% if user %}
+            <div class="user-bar-info">
+                <span class="user-bar-name">{{ user.nome }}</span>
+            </div>
+            <button class="user-bar-btn" onclick="doLogout()">Sair</button>
+            {% else %}
+            <button class="user-bar-btn primary" onclick="openAuthModal('login')">Entrar</button>
+            <button class="user-bar-btn" onclick="openAuthModal('register')">Criar Conta</button>
+            {% endif %}
+        </div>
 
         <!-- Header -->
         <div class="header">
@@ -1186,31 +1443,61 @@
 
                 <!-- Opção B: Conectar Loja Shopify -->
                 <div id="csvSourceShopify" style="display:none;">
-                    <div class="card">
-                        <h2>Conectar Loja Shopify</h2>
-                        <div class="shopify-connect-form">
-                            <div class="shopify-field">
-                                <label>URL da Loja</label>
-                                <input type="text" id="shopifyStoreUrl" placeholder="minhaloja.myshopify.com">
-                                <div class="shopify-hint">Ex: minhaloja.myshopify.com</div>
-                            </div>
-                            <div class="shopify-field" style="margin-top:1rem;">
-                                <label>Access Token (Admin API)</label>
-                                <input type="password" id="shopifyToken" placeholder="shpat_xxxxxxxxxxxxx">
-                                <div class="shopify-hint">
-                                    Gere em: Shopify Admin → Settings → Apps → Develop apps → Admin API access token
-                                </div>
-                            </div>
-                        </div>
 
-                        <!-- Status da conexão -->
-                        <div id="shopifyConnectStatus" style="display:none; margin-top:1rem; padding:0.8rem; border-radius:var(--radius-sm); font-size:0.85rem;">
-                        </div>
+                    <!-- Login required notice -->
+                    <div id="shopifyLoginNotice" class="card" style="display:none; text-align:center;">
+                        <p style="color:var(--text-secondary); font-size:0.9rem; margin-bottom:1rem;">
+                            Faça login para conectar sua loja Shopify e salvar suas credenciais.
+                        </p>
+                        <button class="user-bar-btn primary" onclick="openAuthModal('login')" style="padding:0.7rem 2rem; font-size:0.9rem;">
+                            Entrar / Criar Conta
+                        </button>
                     </div>
 
-                    <button class="btn-csv" id="btnConectar" onclick="conectarShopify()" disabled>
-                        Conectar e Extrair Produtos
-                    </button>
+                    <!-- Stores + connect form (visible when logged in) -->
+                    <div id="shopifyLoggedInArea">
+
+                        <!-- Lojas salvas -->
+                        <div class="card" id="savedStoresCard" style="display:none;">
+                            <h2>Lojas Salvas</h2>
+                            <div id="savedStoresList" class="saved-stores"></div>
+                        </div>
+
+                        <!-- Form para conectar nova loja ou editar -->
+                        <div class="card">
+                            <h2>Conectar Loja Shopify</h2>
+                            <div class="shopify-connect-form">
+                                <div class="shopify-field">
+                                    <label>Nome da Loja <span style="font-weight:400; color:#666;">(opcional)</span></label>
+                                    <input type="text" id="shopifyStoreName" placeholder="Minha Loja Internacional">
+                                </div>
+                                <div class="shopify-field" style="margin-top:1rem;">
+                                    <label>URL da Loja</label>
+                                    <input type="text" id="shopifyStoreUrl" placeholder="minhaloja.myshopify.com">
+                                    <div class="shopify-hint">Ex: minhaloja.myshopify.com</div>
+                                </div>
+                                <div class="shopify-field" style="margin-top:1rem;">
+                                    <label>Access Token (Admin API)</label>
+                                    <input type="password" id="shopifyToken" placeholder="shpat_xxxxxxxxxxxxx">
+                                    <div class="shopify-hint">
+                                        Gere em: Shopify Admin → Settings → Apps → Develop apps → Admin API access token
+                                    </div>
+                                </div>
+                                <label style="display:flex; align-items:center; gap:0.5rem; margin-top:0.8rem; cursor:pointer;">
+                                    <input type="checkbox" id="shopifySaveStore" checked style="width:16px; height:16px; accent-color:var(--accent3);">
+                                    <span style="font-size:0.82rem; color:var(--text-secondary);">Salvar loja na minha conta</span>
+                                </label>
+                            </div>
+
+                            <!-- Status da conexão -->
+                            <div id="shopifyConnectStatus" style="display:none; margin-top:1rem; padding:0.8rem; border-radius:var(--radius-sm); font-size:0.85rem;">
+                            </div>
+                        </div>
+
+                        <button class="btn-csv" id="btnConectar" onclick="conectarShopify()" disabled>
+                            Conectar e Extrair Produtos
+                        </button>
+                    </div>
                 </div>
 
                 <div class="loading" id="csvLoading1">
@@ -1424,6 +1711,226 @@
     <script>
         const FLAGS = {en:'🇬🇧', es:'🇪🇸', fr:'🇫🇷', it:'🇮🇹', de:'🇩🇪', nl:'🇳🇱'};
         let selectedFiles = [];
+        let currentUser = {{ user | tojson if user else 'null' }};
+        let savedStores = [];
+
+        // ─── Auth ───
+        function openAuthModal(form) {
+            document.getElementById('authOverlay').classList.add('visible');
+            switchAuthForm(form || 'login');
+        }
+
+        function closeAuthModal() {
+            document.getElementById('authOverlay').classList.remove('visible');
+            document.getElementById('loginError').style.display = 'none';
+            document.getElementById('registerError').style.display = 'none';
+        }
+
+        function switchAuthForm(form) {
+            document.getElementById('authLogin').style.display = form === 'login' ? '' : 'none';
+            document.getElementById('authRegister').style.display = form === 'register' ? '' : 'none';
+            document.getElementById('loginError').style.display = 'none';
+            document.getElementById('registerError').style.display = 'none';
+        }
+
+        async function doLogin() {
+            const email = document.getElementById('loginEmail').value.trim();
+            const password = document.getElementById('loginPassword').value;
+            const errorEl = document.getElementById('loginError');
+            const btn = document.getElementById('btnLogin');
+
+            if (!email || !password) {
+                errorEl.textContent = 'Preencha email e senha';
+                errorEl.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Entrando...';
+
+            try {
+                const resp = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ email, password }),
+                });
+                const data = await resp.json();
+
+                if (data.erro) {
+                    errorEl.textContent = data.erro;
+                    errorEl.style.display = 'block';
+                } else {
+                    currentUser = data.user;
+                    closeAuthModal();
+                    updateUserBar();
+                    loadSavedStores();
+                }
+            } catch (err) {
+                errorEl.textContent = 'Erro de conexão';
+                errorEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Entrar';
+            }
+        }
+
+        async function doRegister() {
+            const nome = document.getElementById('registerName').value.trim();
+            const email = document.getElementById('registerEmail').value.trim();
+            const password = document.getElementById('registerPassword').value;
+            const errorEl = document.getElementById('registerError');
+            const btn = document.getElementById('btnRegister');
+
+            if (!nome || !email || !password) {
+                errorEl.textContent = 'Preencha todos os campos';
+                errorEl.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Criando...';
+
+            try {
+                const resp = await fetch('/auth/register', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ nome, email, password }),
+                });
+                const data = await resp.json();
+
+                if (data.erro) {
+                    errorEl.textContent = data.erro;
+                    errorEl.style.display = 'block';
+                } else {
+                    currentUser = data.user;
+                    closeAuthModal();
+                    updateUserBar();
+                    loadSavedStores();
+                }
+            } catch (err) {
+                errorEl.textContent = 'Erro de conexão';
+                errorEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Criar Conta';
+            }
+        }
+
+        async function doLogout() {
+            await fetch('/auth/logout', { method: 'POST' });
+            currentUser = null;
+            savedStores = [];
+            shopifyConnected = false;
+            updateUserBar();
+            updateShopifyLoginState();
+        }
+
+        function updateUserBar() {
+            const bar = document.getElementById('userBar');
+            if (currentUser) {
+                bar.innerHTML = `
+                    <div class="user-bar-info">
+                        <span class="user-bar-name">${currentUser.nome}</span>
+                    </div>
+                    <button class="user-bar-btn" onclick="doLogout()">Sair</button>
+                `;
+            } else {
+                bar.innerHTML = `
+                    <button class="user-bar-btn primary" onclick="openAuthModal('login')">Entrar</button>
+                    <button class="user-bar-btn" onclick="openAuthModal('register')">Criar Conta</button>
+                `;
+            }
+            updateShopifyLoginState();
+        }
+
+        function updateShopifyLoginState() {
+            const notice = document.getElementById('shopifyLoginNotice');
+            const loggedInArea = document.getElementById('shopifyLoggedInArea');
+            if (currentUser) {
+                notice.style.display = 'none';
+                loggedInArea.style.display = '';
+            } else {
+                notice.style.display = '';
+                loggedInArea.style.display = 'none';
+            }
+        }
+
+        // ─── Saved Stores ───
+        async function loadSavedStores() {
+            if (!currentUser) return;
+            try {
+                const resp = await fetch('/auth/me');
+                const data = await resp.json();
+                if (data.stores) {
+                    savedStores = data.stores;
+                    renderSavedStores();
+                }
+            } catch (err) {
+                console.error('Erro ao carregar lojas:', err);
+            }
+        }
+
+        function renderSavedStores() {
+            const card = document.getElementById('savedStoresCard');
+            const list = document.getElementById('savedStoresList');
+
+            if (savedStores.length === 0) {
+                card.style.display = 'none';
+                return;
+            }
+
+            card.style.display = '';
+            list.innerHTML = '';
+            savedStores.forEach(store => {
+                const item = document.createElement('div');
+                item.className = 'saved-store-item';
+                item.innerHTML = `
+                    <div onclick="useSavedStore(${store.id})" style="flex:1; cursor:pointer;">
+                        <div class="saved-store-name">${store.store_name || store.store_url}</div>
+                        <div class="saved-store-url">${store.store_url}</div>
+                    </div>
+                    <button class="saved-store-remove" onclick="event.stopPropagation(); removeSavedStore(${store.id})" title="Remover">✕</button>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        async function useSavedStore(storeId) {
+            try {
+                const resp = await fetch(`/auth/shopify-store/${storeId}`);
+                const data = await resp.json();
+                if (data.store) {
+                    document.getElementById('shopifyStoreName').value = data.store.store_name || '';
+                    document.getElementById('shopifyStoreUrl').value = data.store.store_url;
+                    document.getElementById('shopifyToken').value = data.store.access_token;
+                    document.getElementById('shopifySaveStore').checked = true;
+                    checkShopifyReady();
+
+                    // Highlight selected
+                    document.querySelectorAll('.saved-store-item').forEach(el => el.classList.remove('active'));
+                    event.target.closest('.saved-store-item')?.classList.add('active');
+                }
+            } catch (err) {
+                console.error('Erro ao carregar loja:', err);
+            }
+        }
+
+        async function removeSavedStore(storeId) {
+            if (!confirm('Remover esta loja salva?')) return;
+            try {
+                await fetch(`/auth/shopify-store/${storeId}`, { method: 'DELETE' });
+                savedStores = savedStores.filter(s => s.id !== storeId);
+                renderSavedStores();
+            } catch (err) {
+                console.error('Erro ao remover loja:', err);
+            }
+        }
+
+        // Init: check login state and load stores
+        document.addEventListener('DOMContentLoaded', () => {
+            updateShopifyLoginState();
+            if (currentUser) loadSavedStores();
+        });
 
         // ─── Format Toggle ───
         function setFormat(toggleId, format) {
@@ -1767,12 +2274,22 @@
             document.getElementById('btnConectar').disabled = !(url && token);
         }
 
-        // Attach input listeners for Shopify fields
+        // Attach input listeners for Shopify fields + auth enter keys
         document.addEventListener('DOMContentLoaded', () => {
             const urlInput = document.getElementById('shopifyStoreUrl');
             const tokenInput = document.getElementById('shopifyToken');
             if (urlInput) urlInput.addEventListener('input', checkShopifyReady);
             if (tokenInput) tokenInput.addEventListener('input', checkShopifyReady);
+
+            // Enter key on auth forms
+            ['loginEmail', 'loginPassword'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+            });
+            ['registerName', 'registerEmail', 'registerPassword'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') doRegister(); });
+            });
         });
 
         async function conectarShopify() {
@@ -1812,6 +2329,17 @@
                 shopifyStoreUrl = data.store_url;
                 shopifyToken = token;
                 shopifyConnected = true;
+
+                // Save store to account if checkbox is checked
+                const saveStore = document.getElementById('shopifySaveStore');
+                if (currentUser && saveStore && saveStore.checked) {
+                    const storeName = document.getElementById('shopifyStoreName').value.trim();
+                    fetch('/auth/shopify-store', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ store_url: data.store_url, token: token, store_name: storeName }),
+                    }).then(() => loadSavedStores()).catch(() => {});
+                }
 
                 statusEl.style.background = 'rgba(16,185,129,0.1)';
                 statusEl.style.color = '#10b981';

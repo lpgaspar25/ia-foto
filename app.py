@@ -26,7 +26,11 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests as http_requests
 from bs4 import BeautifulSoup
-from flask import Flask, render_template, request, jsonify, send_file, Response, stream_with_context
+import sqlite3
+import hashlib
+import functools
+from flask import Flask, render_template, request, jsonify, send_file, Response, stream_with_context, session, redirect, url_for
+from werkzeug.security import generate_password_hash, check_password_hash
 from PIL import Image
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -48,16 +52,81 @@ except ImportError:
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB max upload
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key-change-in-production-" + str(uuid.uuid4()))
 
 # Cloud: usar /tmp para storage efêmero; local: pastas relativas
 if os.environ.get("RAILWAY_ENVIRONMENT"):
     UPLOAD_FOLDER = Path(tempfile.gettempdir()) / "img-uploads"
     OUTPUT_FOLDER = Path(tempfile.gettempdir()) / "img-output"
+    DB_PATH = Path(tempfile.gettempdir()) / "imagetools.db"
 else:
     UPLOAD_FOLDER = Path(__file__).parent / "uploads"
     OUTPUT_FOLDER = Path(__file__).parent / "output"
+    DB_PATH = Path(__file__).parent / "imagetools.db"
 UPLOAD_FOLDER.mkdir(exist_ok=True)
 OUTPUT_FOLDER.mkdir(exist_ok=True)
+
+
+# ─── Database ─────────────────────────────────────────────
+
+def get_db():
+    """Get a database connection (thread-local)."""
+    conn = sqlite3.connect(str(DB_PATH), timeout=10)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
+
+
+def init_db():
+    """Create tables if they don't exist."""
+    conn = get_db()
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS shopify_stores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            store_name TEXT NOT NULL DEFAULT '',
+            store_url TEXT NOT NULL,
+            access_token TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+    """)
+    conn.commit()
+    conn.close()
+
+
+init_db()
+
+
+def get_current_user():
+    """Return current user dict or None."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return None
+    conn = get_db()
+    user = conn.execute("SELECT id, nome, email FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    if user:
+        return dict(user)
+    return None
+
+
+def login_required_api(f):
+    """Decorator for API routes that require login. Returns JSON error."""
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("user_id"):
+            return jsonify({"erro": "Faça login para acessar esta funcionalidade"}), 401
+        return f(*args, **kwargs)
+    return decorated
 
 
 def _cleanup_old_files():
@@ -414,7 +483,179 @@ def generate_translated_csv(rows: list[dict], mapping: dict, lang: str,
 
 @app.route("/")
 def index():
-    return render_template("index.html", idiomas=IDIOMAS)
+    user = get_current_user()
+    return render_template("index.html", idiomas=IDIOMAS, user=user)
+
+
+# ─── Auth Routes ─────────────────────────────────────────
+
+@app.route("/auth/register", methods=["POST"])
+def auth_register():
+    """Create a new user account."""
+    data = request.get_json()
+    nome = (data.get("nome") or "").strip()
+    email = (data.get("email") or "").strip().lower()
+    password = (data.get("password") or "")
+
+    if not nome or not email or not password:
+        return jsonify({"erro": "Preencha todos os campos"}), 400
+
+    if len(password) < 6:
+        return jsonify({"erro": "Senha deve ter pelo menos 6 caracteres"}), 400
+
+    if "@" not in email or "." not in email:
+        return jsonify({"erro": "Email inválido"}), 400
+
+    conn = get_db()
+    try:
+        existing = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+        if existing:
+            conn.close()
+            return jsonify({"erro": "Este email já está cadastrado"}), 409
+
+        password_hash = generate_password_hash(password)
+        cursor = conn.execute(
+            "INSERT INTO users (nome, email, password_hash) VALUES (?, ?, ?)",
+            (nome, email, password_hash)
+        )
+        conn.commit()
+        user_id = cursor.lastrowid
+
+        session["user_id"] = user_id
+        conn.close()
+
+        return jsonify({"ok": True, "user": {"id": user_id, "nome": nome, "email": email}})
+    except Exception as e:
+        conn.close()
+        logger.error(f"[Auth] Erro no registro: {e}")
+        return jsonify({"erro": "Erro ao criar conta"}), 500
+
+
+@app.route("/auth/login", methods=["POST"])
+def auth_login():
+    """Log in with email and password."""
+    data = request.get_json()
+    email = (data.get("email") or "").strip().lower()
+    password = (data.get("password") or "")
+
+    if not email or not password:
+        return jsonify({"erro": "Preencha email e senha"}), 400
+
+    conn = get_db()
+    user = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    conn.close()
+
+    if not user or not check_password_hash(user["password_hash"], password):
+        return jsonify({"erro": "Email ou senha incorretos"}), 401
+
+    session["user_id"] = user["id"]
+    return jsonify({"ok": True, "user": {"id": user["id"], "nome": user["nome"], "email": user["email"]}})
+
+
+@app.route("/auth/logout", methods=["POST"])
+def auth_logout():
+    """Log out current user."""
+    session.clear()
+    return jsonify({"ok": True})
+
+
+@app.route("/auth/me")
+def auth_me():
+    """Return current user info + linked Shopify stores."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"logged_in": False})
+
+    conn = get_db()
+    stores = conn.execute(
+        "SELECT id, store_name, store_url FROM shopify_stores WHERE user_id = ? ORDER BY updated_at DESC",
+        (user["id"],)
+    ).fetchall()
+    conn.close()
+
+    return jsonify({
+        "logged_in": True,
+        "user": user,
+        "stores": [dict(s) for s in stores],
+    })
+
+
+@app.route("/auth/shopify-store", methods=["POST"])
+@login_required_api
+def auth_save_shopify_store():
+    """Save or update a Shopify store linked to the current user."""
+    data = request.get_json()
+    store_url = (data.get("store_url") or "").strip()
+    token = (data.get("token") or "").strip()
+    store_name = (data.get("store_name") or "").strip()
+
+    if not store_url or not token:
+        return jsonify({"erro": "URL e token são obrigatórios"}), 400
+
+    store_url = store_url.replace("https://", "").replace("http://", "").rstrip("/")
+    if not store_url.endswith(".myshopify.com"):
+        if "." not in store_url:
+            store_url = store_url + ".myshopify.com"
+
+    user_id = session["user_id"]
+    conn = get_db()
+
+    # Check if this store already exists for this user
+    existing = conn.execute(
+        "SELECT id FROM shopify_stores WHERE user_id = ? AND store_url = ?",
+        (user_id, store_url)
+    ).fetchone()
+
+    if existing:
+        conn.execute(
+            "UPDATE shopify_stores SET access_token = ?, store_name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (token, store_name or store_url, existing["id"])
+        )
+        store_id = existing["id"]
+    else:
+        cursor = conn.execute(
+            "INSERT INTO shopify_stores (user_id, store_name, store_url, access_token) VALUES (?, ?, ?, ?)",
+            (user_id, store_name or store_url, store_url, token)
+        )
+        store_id = cursor.lastrowid
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True, "store_id": store_id})
+
+
+@app.route("/auth/shopify-store/<int:store_id>")
+@login_required_api
+def auth_get_shopify_store(store_id):
+    """Get Shopify store credentials (for auto-fill)."""
+    user_id = session["user_id"]
+    conn = get_db()
+    store = conn.execute(
+        "SELECT id, store_name, store_url, access_token FROM shopify_stores WHERE id = ? AND user_id = ?",
+        (store_id, user_id)
+    ).fetchone()
+    conn.close()
+
+    if not store:
+        return jsonify({"erro": "Loja não encontrada"}), 404
+
+    return jsonify({"store": dict(store)})
+
+
+@app.route("/auth/shopify-store/<int:store_id>", methods=["DELETE"])
+@login_required_api
+def auth_delete_shopify_store(store_id):
+    """Delete a linked Shopify store."""
+    user_id = session["user_id"]
+    conn = get_db()
+    conn.execute(
+        "DELETE FROM shopify_stores WHERE id = ? AND user_id = ?",
+        (store_id, user_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
 
 
 @app.route("/traduzir", methods=["POST"])
@@ -832,6 +1073,7 @@ def shopify_products_to_csv_rows(products: list[dict]) -> list[dict]:
 # ─── Rotas Shopify API ───────────────────────────────────
 
 @app.route("/shopify/conectar", methods=["POST"])
+@login_required_api
 def shopify_conectar():
     """Validate Shopify connection and fetch products count."""
     data = request.get_json()
@@ -864,6 +1106,7 @@ def shopify_conectar():
 
 
 @app.route("/shopify/extrair", methods=["POST"])
+@login_required_api
 def shopify_extrair():
     """Fetch all products from Shopify store and return as CSV-like data for analysis."""
     data = request.get_json()
@@ -1137,6 +1380,7 @@ def shopify_preview_products():
 
 
 @app.route("/shopify/publicar", methods=["POST"])
+@login_required_api
 def shopify_publicar():
     """Publish translated content back to Shopify store."""
     data = request.get_json()
