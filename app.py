@@ -26,7 +26,11 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests as http_requests
 from bs4 import BeautifulSoup
-from flask import Flask, render_template, request, jsonify, send_file, Response, stream_with_context
+import sqlite3
+import hashlib
+import functools
+from flask import Flask, render_template, request, jsonify, send_file, Response, stream_with_context, session, redirect, url_for
+from werkzeug.security import generate_password_hash, check_password_hash
 from PIL import Image
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -48,16 +52,81 @@ except ImportError:
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB max upload
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key-change-in-production-" + str(uuid.uuid4()))
 
 # Cloud: usar /tmp para storage efêmero; local: pastas relativas
 if os.environ.get("RAILWAY_ENVIRONMENT"):
     UPLOAD_FOLDER = Path(tempfile.gettempdir()) / "img-uploads"
     OUTPUT_FOLDER = Path(tempfile.gettempdir()) / "img-output"
+    DB_PATH = Path(tempfile.gettempdir()) / "imagetools.db"
 else:
     UPLOAD_FOLDER = Path(__file__).parent / "uploads"
     OUTPUT_FOLDER = Path(__file__).parent / "output"
+    DB_PATH = Path(__file__).parent / "imagetools.db"
 UPLOAD_FOLDER.mkdir(exist_ok=True)
 OUTPUT_FOLDER.mkdir(exist_ok=True)
+
+
+# ─── Database ─────────────────────────────────────────────
+
+def get_db():
+    """Get a database connection (thread-local)."""
+    conn = sqlite3.connect(str(DB_PATH), timeout=10)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
+
+
+def init_db():
+    """Create tables if they don't exist."""
+    conn = get_db()
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS shopify_stores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            store_name TEXT NOT NULL DEFAULT '',
+            store_url TEXT NOT NULL,
+            access_token TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+    """)
+    conn.commit()
+    conn.close()
+
+
+init_db()
+
+
+def get_current_user():
+    """Return current user dict or None."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return None
+    conn = get_db()
+    user = conn.execute("SELECT id, nome, email FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    if user:
+        return dict(user)
+    return None
+
+
+def login_required_api(f):
+    """Decorator for API routes that require login. Returns JSON error."""
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("user_id"):
+            return jsonify({"erro": "Faça login para acessar esta funcionalidade"}), 401
+        return f(*args, **kwargs)
+    return decorated
 
 
 def _cleanup_old_files():
@@ -414,7 +483,179 @@ def generate_translated_csv(rows: list[dict], mapping: dict, lang: str,
 
 @app.route("/")
 def index():
-    return render_template("index.html", idiomas=IDIOMAS)
+    user = get_current_user()
+    return render_template("index.html", idiomas=IDIOMAS, user=user)
+
+
+# ─── Auth Routes ─────────────────────────────────────────
+
+@app.route("/auth/register", methods=["POST"])
+def auth_register():
+    """Create a new user account."""
+    data = request.get_json()
+    nome = (data.get("nome") or "").strip()
+    email = (data.get("email") or "").strip().lower()
+    password = (data.get("password") or "")
+
+    if not nome or not email or not password:
+        return jsonify({"erro": "Preencha todos os campos"}), 400
+
+    if len(password) < 6:
+        return jsonify({"erro": "Senha deve ter pelo menos 6 caracteres"}), 400
+
+    if "@" not in email or "." not in email:
+        return jsonify({"erro": "Email inválido"}), 400
+
+    conn = get_db()
+    try:
+        existing = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+        if existing:
+            conn.close()
+            return jsonify({"erro": "Este email já está cadastrado"}), 409
+
+        password_hash = generate_password_hash(password)
+        cursor = conn.execute(
+            "INSERT INTO users (nome, email, password_hash) VALUES (?, ?, ?)",
+            (nome, email, password_hash)
+        )
+        conn.commit()
+        user_id = cursor.lastrowid
+
+        session["user_id"] = user_id
+        conn.close()
+
+        return jsonify({"ok": True, "user": {"id": user_id, "nome": nome, "email": email}})
+    except Exception as e:
+        conn.close()
+        logger.error(f"[Auth] Erro no registro: {e}")
+        return jsonify({"erro": "Erro ao criar conta"}), 500
+
+
+@app.route("/auth/login", methods=["POST"])
+def auth_login():
+    """Log in with email and password."""
+    data = request.get_json()
+    email = (data.get("email") or "").strip().lower()
+    password = (data.get("password") or "")
+
+    if not email or not password:
+        return jsonify({"erro": "Preencha email e senha"}), 400
+
+    conn = get_db()
+    user = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    conn.close()
+
+    if not user or not check_password_hash(user["password_hash"], password):
+        return jsonify({"erro": "Email ou senha incorretos"}), 401
+
+    session["user_id"] = user["id"]
+    return jsonify({"ok": True, "user": {"id": user["id"], "nome": user["nome"], "email": user["email"]}})
+
+
+@app.route("/auth/logout", methods=["POST"])
+def auth_logout():
+    """Log out current user."""
+    session.clear()
+    return jsonify({"ok": True})
+
+
+@app.route("/auth/me")
+def auth_me():
+    """Return current user info + linked Shopify stores."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"logged_in": False})
+
+    conn = get_db()
+    stores = conn.execute(
+        "SELECT id, store_name, store_url FROM shopify_stores WHERE user_id = ? ORDER BY updated_at DESC",
+        (user["id"],)
+    ).fetchall()
+    conn.close()
+
+    return jsonify({
+        "logged_in": True,
+        "user": user,
+        "stores": [dict(s) for s in stores],
+    })
+
+
+@app.route("/auth/shopify-store", methods=["POST"])
+@login_required_api
+def auth_save_shopify_store():
+    """Save or update a Shopify store linked to the current user."""
+    data = request.get_json()
+    store_url = (data.get("store_url") or "").strip()
+    token = (data.get("token") or "").strip()
+    store_name = (data.get("store_name") or "").strip()
+
+    if not store_url or not token:
+        return jsonify({"erro": "URL e token são obrigatórios"}), 400
+
+    store_url = store_url.replace("https://", "").replace("http://", "").rstrip("/")
+    if not store_url.endswith(".myshopify.com"):
+        if "." not in store_url:
+            store_url = store_url + ".myshopify.com"
+
+    user_id = session["user_id"]
+    conn = get_db()
+
+    # Check if this store already exists for this user
+    existing = conn.execute(
+        "SELECT id FROM shopify_stores WHERE user_id = ? AND store_url = ?",
+        (user_id, store_url)
+    ).fetchone()
+
+    if existing:
+        conn.execute(
+            "UPDATE shopify_stores SET access_token = ?, store_name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (token, store_name or store_url, existing["id"])
+        )
+        store_id = existing["id"]
+    else:
+        cursor = conn.execute(
+            "INSERT INTO shopify_stores (user_id, store_name, store_url, access_token) VALUES (?, ?, ?, ?)",
+            (user_id, store_name or store_url, store_url, token)
+        )
+        store_id = cursor.lastrowid
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True, "store_id": store_id})
+
+
+@app.route("/auth/shopify-store/<int:store_id>")
+@login_required_api
+def auth_get_shopify_store(store_id):
+    """Get Shopify store credentials (for auto-fill)."""
+    user_id = session["user_id"]
+    conn = get_db()
+    store = conn.execute(
+        "SELECT id, store_name, store_url, access_token FROM shopify_stores WHERE id = ? AND user_id = ?",
+        (store_id, user_id)
+    ).fetchone()
+    conn.close()
+
+    if not store:
+        return jsonify({"erro": "Loja não encontrada"}), 404
+
+    return jsonify({"store": dict(store)})
+
+
+@app.route("/auth/shopify-store/<int:store_id>", methods=["DELETE"])
+@login_required_api
+def auth_delete_shopify_store(store_id):
+    """Delete a linked Shopify store."""
+    user_id = session["user_id"]
+    conn = get_db()
+    conn.execute(
+        "DELETE FROM shopify_stores WHERE id = ? AND user_id = ?",
+        (store_id, user_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
 
 
 @app.route("/traduzir", methods=["POST"])
@@ -702,6 +943,579 @@ def download(job_id, nome_arquivo):
     if not caminho.exists():
         return jsonify({"erro": "Arquivo não encontrado"}), 404
     return send_file(str(caminho), as_attachment=True, download_name=nome_arquivo)
+
+
+# ─── Shopify API Helpers ─────────────────────────────────
+
+SHOPIFY_API_VERSION = "2024-01"
+
+
+def shopify_api_get(store_url: str, token: str, endpoint: str, params: dict = None) -> dict:
+    """GET request to Shopify Admin API."""
+    url = f"https://{store_url}/admin/api/{SHOPIFY_API_VERSION}/{endpoint}"
+    headers = {"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
+    resp = http_requests.get(url, headers=headers, params=params, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def shopify_api_put(store_url: str, token: str, endpoint: str, data: dict) -> dict:
+    """PUT request to Shopify Admin API."""
+    url = f"https://{store_url}/admin/api/{SHOPIFY_API_VERSION}/{endpoint}"
+    headers = {"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
+    resp = http_requests.put(url, headers=headers, json=data, timeout=60)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def shopify_products_to_csv_rows(products: list[dict]) -> list[dict]:
+    """Convert Shopify API product objects to CSV-like row dicts (same format as parse_shopify_csv)."""
+    rows = []
+    for product in products:
+        handle = product.get("handle", "")
+        title = product.get("title", "")
+        body_html = product.get("body_html", "")
+        tags = product.get("tags", "")
+        seo_title = product.get("metafields_global_title_tag", "") or ""
+        seo_desc = product.get("metafields_global_description_tag", "") or ""
+
+        # Extract SEO from metafields if available
+        if not seo_title:
+            seo_title = product.get("title", "")
+
+        variants = product.get("variants", [])
+        images = product.get("images", [])
+
+        # First row: main product info + first image + first variant
+        first_variant = variants[0] if variants else {}
+        first_image = images[0] if images else {}
+
+        base_row = {
+            "Handle": handle,
+            "Title": title,
+            "Body (HTML)": body_html,
+            "Tags": tags,
+            "SEO Title": seo_title,
+            "SEO Description": seo_desc,
+            "Image Src": first_image.get("src", ""),
+            "Image Alt Text": first_image.get("alt", "") or "",
+            "Image Position": str(first_image.get("position", "1")),
+            "Variant Image": "",
+            "Variant SKU": first_variant.get("sku", ""),
+            "Variant Price": str(first_variant.get("price", "")),
+            "Variant Inventory Qty": str(first_variant.get("inventory_quantity", "")),
+            "Option1 Name": (product.get("options", [{}])[0].get("name", "") if product.get("options") else ""),
+            "Option1 Value": first_variant.get("option1", "") or "",
+            "_shopify_product_id": str(product.get("id", "")),
+        }
+
+        # Variant image
+        if first_variant.get("image_id") and images:
+            for img in images:
+                if img.get("id") == first_variant.get("image_id"):
+                    base_row["Variant Image"] = img.get("src", "")
+                    break
+
+        rows.append(base_row)
+
+        # Additional images (rows with only Handle + Image Src)
+        for img in images[1:]:
+            rows.append({
+                "Handle": handle,
+                "Title": "",
+                "Body (HTML)": "",
+                "Tags": "",
+                "SEO Title": "",
+                "SEO Description": "",
+                "Image Src": img.get("src", ""),
+                "Image Alt Text": img.get("alt", "") or "",
+                "Image Position": str(img.get("position", "")),
+                "Variant Image": "",
+                "Variant SKU": "",
+                "Variant Price": "",
+                "Variant Inventory Qty": "",
+                "Option1 Name": "",
+                "Option1 Value": "",
+                "_shopify_product_id": str(product.get("id", "")),
+            })
+
+        # Additional variants (rows with Handle + variant info)
+        for variant in variants[1:]:
+            var_row = {
+                "Handle": handle,
+                "Title": "",
+                "Body (HTML)": "",
+                "Tags": "",
+                "SEO Title": "",
+                "SEO Description": "",
+                "Image Src": "",
+                "Image Alt Text": "",
+                "Image Position": "",
+                "Variant Image": "",
+                "Variant SKU": variant.get("sku", ""),
+                "Variant Price": str(variant.get("price", "")),
+                "Variant Inventory Qty": str(variant.get("inventory_quantity", "")),
+                "Option1 Name": "",
+                "Option1 Value": variant.get("option1", "") or "",
+                "_shopify_product_id": str(product.get("id", "")),
+            }
+            # Check if variant has its own image
+            if variant.get("image_id") and images:
+                for img in images:
+                    if img.get("id") == variant.get("image_id"):
+                        var_row["Variant Image"] = img.get("src", "")
+                        break
+            rows.append(var_row)
+
+    return rows
+
+
+# ─── Rotas Shopify API ───────────────────────────────────
+
+@app.route("/shopify/conectar", methods=["POST"])
+@login_required_api
+def shopify_conectar():
+    """Validate Shopify connection and fetch products count."""
+    data = request.get_json()
+    store_url = (data.get("store_url") or "").strip()
+    token = (data.get("token") or "").strip()
+
+    if not store_url or not token:
+        return jsonify({"erro": "URL da loja e token são obrigatórios"}), 400
+
+    # Clean store URL
+    store_url = store_url.replace("https://", "").replace("http://", "").rstrip("/")
+    if not store_url.endswith(".myshopify.com"):
+        # Try to add .myshopify.com if not present
+        if "." not in store_url:
+            store_url = store_url + ".myshopify.com"
+
+    try:
+        result = shopify_api_get(store_url, token, "products/count.json")
+        count = result.get("count", 0)
+        return jsonify({"ok": True, "store_url": store_url, "product_count": count})
+    except http_requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 401:
+            return jsonify({"erro": "Token de acesso inválido. Verifique suas credenciais."}), 401
+        elif e.response is not None and e.response.status_code == 404:
+            return jsonify({"erro": "Loja não encontrada. Verifique a URL."}), 404
+        return jsonify({"erro": f"Erro ao conectar: {e}"}), 500
+    except Exception as e:
+        logger.error(f"[Shopify] Erro ao conectar: {e}")
+        return jsonify({"erro": f"Erro ao conectar: {e}"}), 500
+
+
+@app.route("/shopify/extrair", methods=["POST"])
+@login_required_api
+def shopify_extrair():
+    """Fetch all products from Shopify store and return as CSV-like data for analysis."""
+    data = request.get_json()
+    store_url = (data.get("store_url") or "").strip()
+    token = (data.get("token") or "").strip()
+
+    if not store_url or not token:
+        return jsonify({"erro": "URL da loja e token são obrigatórios"}), 400
+
+    store_url = store_url.replace("https://", "").replace("http://", "").rstrip("/")
+    if not store_url.endswith(".myshopify.com"):
+        if "." not in store_url:
+            store_url = store_url + ".myshopify.com"
+
+    try:
+        # Fetch all products (paginated)
+        all_products = []
+        page_info = None
+        while True:
+            params = {"limit": 250}
+            if page_info:
+                params["page_info"] = page_info
+
+            result = shopify_api_get(store_url, token, "products.json", params)
+            products = result.get("products", [])
+            all_products.extend(products)
+
+            if len(products) < 250:
+                break
+
+            # Simple pagination - stop after 250 for safety (adjust if needed)
+            break
+
+        if not all_products:
+            return jsonify({"erro": "Nenhum produto encontrado na loja"}), 400
+
+        # Convert to CSV-like rows
+        rows = shopify_products_to_csv_rows(all_products)
+
+        # Extract images (same as CSV flow)
+        images = extract_images_from_csv(rows)
+
+        # Create job directory
+        job_id = str(uuid.uuid4())[:8]
+        job_dir = OUTPUT_FOLDER / job_id
+        job_dir.mkdir(exist_ok=True)
+
+        # Count unique products
+        handles = set(r.get("Handle", "") for r in rows if r.get("Handle"))
+        product_count = len(handles)
+
+        # Download images and detect text (same as CSV flow)
+        try:
+            client = get_client()
+        except ValueError as e:
+            return jsonify({"erro": str(e)}), 500
+
+        result_images = []
+        for i, img_info in enumerate(images):
+            logger.info(f"[Shopify] Baixando imagem {i+1}/{len(images)}: {img_info['filename']}")
+
+            img_bytes = download_image(img_info["url"])
+            if not img_bytes:
+                result_images.append({
+                    "index": i,
+                    "url": img_info["url"],
+                    "source": img_info["source"],
+                    "handle": img_info["handle"],
+                    "filename": img_info["filename"],
+                    "has_text": False,
+                    "description": "Erro ao baixar imagem",
+                    "error": True,
+                })
+                continue
+
+            img_path = job_dir / f"original_{i}_{img_info['filename']}"
+            with open(img_path, "wb") as f:
+                f.write(img_bytes)
+
+            ext = Path(img_info["filename"]).suffix.lower()
+            mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}.get(ext, "image/png")
+
+            detection = detect_text_in_image(client, img_bytes, mime)
+
+            try:
+                thumb = Image.open(io.BytesIO(img_bytes))
+                thumb.thumbnail((120, 120))
+                if thumb.mode in ("RGBA", "P"):
+                    thumb = thumb.convert("RGB")
+                buf = io.BytesIO()
+                thumb.save(buf, format="JPEG", quality=70)
+                thumb_b64 = base64.standard_b64encode(buf.getvalue()).decode("utf-8")
+            except Exception:
+                thumb_b64 = ""
+
+            result_images.append({
+                "index": i,
+                "url": img_info["url"],
+                "source": img_info["source"],
+                "handle": img_info["handle"],
+                "filename": img_info["filename"],
+                "has_text": detection.get("has_text", False),
+                "description": detection.get("description", ""),
+                "thumbnail": f"data:image/jpeg;base64,{thumb_b64}" if thumb_b64 else "",
+            })
+
+            time.sleep(0.5)
+
+        # Save state (include store credentials for later publish)
+        state = {
+            "rows": rows,
+            "images": [img for img in images],
+            "product_count": product_count,
+            "shopify_store_url": store_url,
+            "shopify_token": token,
+            "shopify_products": all_products,
+        }
+        with open(job_dir / "state.json", "w") as f:
+            json.dump(state, f, ensure_ascii=False)
+
+        return jsonify({
+            "job_id": job_id,
+            "product_count": product_count,
+            "total_images": len(images),
+            "images": result_images,
+            "source": "shopify_api",
+        })
+
+    except http_requests.exceptions.HTTPError as e:
+        logger.error(f"[Shopify] HTTP erro: {e}")
+        return jsonify({"erro": f"Erro na API Shopify: {e}"}), 500
+    except Exception as e:
+        logger.error(f"[Shopify] Erro ao extrair: {e}")
+        return jsonify({"erro": f"Erro: {e}"}), 500
+
+
+@app.route("/shopify/colecoes", methods=["POST"])
+def shopify_colecoes():
+    """Fetch collections from Shopify store (both custom and smart)."""
+    data = request.get_json()
+    store_url = (data.get("store_url") or "").strip()
+    token = (data.get("token") or "").strip()
+
+    if not store_url or not token:
+        return jsonify({"erro": "Credenciais não fornecidas"}), 400
+
+    store_url = store_url.replace("https://", "").replace("http://", "").rstrip("/")
+
+    collections = []
+    try:
+        # Custom collections
+        result = shopify_api_get(store_url, token, "custom_collections.json", {"limit": 250})
+        for c in result.get("custom_collections", []):
+            collections.append({"id": c["id"], "title": c["title"], "type": "custom"})
+    except Exception as e:
+        logger.warning(f"[Shopify] Erro ao buscar custom collections: {e}")
+
+    try:
+        # Smart collections
+        result = shopify_api_get(store_url, token, "smart_collections.json", {"limit": 250})
+        for c in result.get("smart_collections", []):
+            collections.append({"id": c["id"], "title": c["title"], "type": "smart"})
+    except Exception as e:
+        logger.warning(f"[Shopify] Erro ao buscar smart collections: {e}")
+
+    return jsonify({"collections": collections})
+
+
+@app.route("/shopify/templates", methods=["POST"])
+def shopify_templates():
+    """Fetch available theme templates from Shopify store."""
+    data = request.get_json()
+    store_url = (data.get("store_url") or "").strip()
+    token = (data.get("token") or "").strip()
+
+    if not store_url or not token:
+        return jsonify({"erro": "Credenciais não fornecidas"}), 400
+
+    store_url = store_url.replace("https://", "").replace("http://", "").rstrip("/")
+
+    templates = []
+    try:
+        # Get the main (published) theme
+        result = shopify_api_get(store_url, token, "themes.json")
+        main_theme = None
+        for theme in result.get("themes", []):
+            if theme.get("role") == "main":
+                main_theme = theme
+                break
+
+        if main_theme:
+            # Get assets from the main theme to find product templates
+            theme_id = main_theme["id"]
+            assets_result = shopify_api_get(store_url, token, f"themes/{theme_id}/assets.json")
+            for asset in assets_result.get("assets", []):
+                key = asset.get("key", "")
+                # Look for product template files
+                if key.startswith("templates/product.") and key != "templates/product.json":
+                    # Extract suffix: "templates/product.custom.json" -> "custom"
+                    suffix = key.replace("templates/product.", "").replace(".json", "").replace(".liquid", "")
+                    if suffix:
+                        templates.append(suffix)
+                # Also check sections/templates folder pattern
+                elif key.startswith("sections/product-template") or key.startswith("templates/product/"):
+                    suffix = key.split("/")[-1].replace(".json", "").replace(".liquid", "").replace("product-template-", "").replace("product.", "")
+                    if suffix and suffix not in templates:
+                        templates.append(suffix)
+    except Exception as e:
+        logger.warning(f"[Shopify] Erro ao buscar templates: {e}")
+
+    return jsonify({"templates": templates})
+
+
+@app.route("/shopify/preview-products", methods=["POST"])
+def shopify_preview_products():
+    """Return translated product data for review/editing before publish."""
+    data = request.get_json()
+    job_id = data.get("job_id", "")
+    lang = data.get("lang", "")
+
+    if not job_id or not lang:
+        return jsonify({"erro": "job_id e lang são obrigatórios"}), 400
+
+    job_dir = OUTPUT_FOLDER / job_id
+    state_path = job_dir / "state.json"
+
+    if not state_path.exists():
+        return jsonify({"erro": "Job não encontrado"}), 404
+
+    with open(state_path) as f:
+        state = json.load(f)
+
+    shopify_products = state.get("shopify_products", [])
+
+    # Read translated CSV
+    csv_path = job_dir / lang / f"products_export_{lang}.csv"
+    text_translations = {}
+    if csv_path.exists():
+        with open(csv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                handle = row.get("Handle", "")
+                if handle and handle not in text_translations:
+                    text_translations[handle] = {
+                        "title": row.get("Title", ""),
+                        "body_html": row.get("Body (HTML)", ""),
+                        "tags": row.get("Tags", ""),
+                    }
+
+    # Build preview list
+    products = []
+    for product in shopify_products:
+        handle = product.get("handle", "")
+        product_id = product.get("id")
+        if not product_id:
+            continue
+
+        tt = text_translations.get(handle, {})
+        products.append({
+            "id": product_id,
+            "handle": handle,
+            "original_title": product.get("title", ""),
+            "original_body_html": product.get("body_html", "") or "",
+            "translated_title": tt.get("title", "") or product.get("title", ""),
+            "translated_body_html": tt.get("body_html", "") or product.get("body_html", "") or "",
+            "translated_tags": tt.get("tags", "") or product.get("tags", ""),
+            "template_suffix": product.get("template_suffix", "") or "",
+        })
+
+    return jsonify({"products": products})
+
+
+@app.route("/shopify/publicar", methods=["POST"])
+@login_required_api
+def shopify_publicar():
+    """Publish translated content back to Shopify store."""
+    data = request.get_json()
+    job_id = data.get("job_id", "")
+    lang = data.get("lang", "")
+    collection_id = data.get("collection_id", "")
+    template_suffix = data.get("template_suffix", "")
+    product_edits = data.get("product_edits", {})  # {handle: {title, body_html}}
+
+    if not job_id or not lang:
+        return jsonify({"erro": "job_id e lang são obrigatórios"}), 400
+
+    job_dir = OUTPUT_FOLDER / job_id
+    state_path = job_dir / "state.json"
+
+    if not state_path.exists():
+        return jsonify({"erro": "Job não encontrado"}), 404
+
+    with open(state_path) as f:
+        state = json.load(f)
+
+    store_url = state.get("shopify_store_url", "")
+    token = state.get("shopify_token", "")
+    shopify_products = state.get("shopify_products", [])
+
+    if not store_url or not token:
+        return jsonify({"erro": "Dados da loja Shopify não encontrados. Use 'Conectar Loja' primeiro."}), 400
+
+    if not shopify_products:
+        return jsonify({"erro": "Produtos Shopify não encontrados no estado do job."}), 400
+
+    nome_idioma = IDIOMAS.get(lang, lang)
+
+    # Read translated CSV to get text translations
+    csv_path = job_dir / lang / f"products_export_{lang}.csv"
+    text_translations = {}
+    if csv_path.exists():
+        with open(csv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                handle = row.get("Handle", "")
+                if handle and handle not in text_translations:
+                    text_translations[handle] = {
+                        "title": row.get("Title", ""),
+                        "body_html": row.get("Body (HTML)", ""),
+                        "seo_title": row.get("SEO Title", ""),
+                        "seo_description": row.get("SEO Description", ""),
+                        "tags": row.get("Tags", ""),
+                    }
+
+    # Upload translated images and update products
+    updated = 0
+    errors = []
+    lang_dir = job_dir / lang
+    product_ids_for_collection = []
+
+    for product in shopify_products:
+        product_id = product.get("id")
+        handle = product.get("handle", "")
+
+        if not product_id:
+            continue
+
+        update_data = {}
+
+        # Apply text translations (base from CSV)
+        if handle in text_translations:
+            tt = text_translations[handle]
+            if tt.get("title"):
+                update_data["title"] = tt["title"]
+            if tt.get("body_html"):
+                update_data["body_html"] = tt["body_html"]
+            if tt.get("tags"):
+                update_data["tags"] = tt["tags"]
+
+        # Apply manual edits (override CSV translations)
+        if handle in product_edits:
+            edits = product_edits[handle]
+            if edits.get("title"):
+                update_data["title"] = edits["title"]
+            if edits.get("body_html"):
+                update_data["body_html"] = edits["body_html"]
+
+        # Apply template suffix
+        if template_suffix:
+            update_data["template_suffix"] = template_suffix
+
+        # Upload translated images
+        translated_images = []
+        if lang_dir.exists():
+            for img_file in lang_dir.iterdir():
+                if img_file.is_file() and img_file.suffix in (".webp", ".jpg", ".jpeg", ".png") and handle in img_file.stem:
+                    with open(img_file, "rb") as f:
+                        img_b64 = base64.standard_b64encode(f.read()).decode("utf-8")
+                    translated_images.append({
+                        "attachment": img_b64,
+                        "filename": img_file.name,
+                    })
+
+        if translated_images:
+            update_data["images"] = translated_images
+
+        if not update_data:
+            continue
+
+        try:
+            shopify_api_put(store_url, token, f"products/{product_id}.json", {"product": update_data})
+            updated += 1
+            product_ids_for_collection.append(product_id)
+            logger.info(f"[Shopify] Produto {handle} ({product_id}) atualizado com sucesso")
+        except Exception as e:
+            logger.error(f"[Shopify] Erro ao atualizar {handle}: {e}")
+            errors.append(f"{handle}: {str(e)}")
+
+    # Add products to collection if specified
+    collection_added = 0
+    if collection_id and product_ids_for_collection:
+        for pid in product_ids_for_collection:
+            try:
+                url = f"https://{store_url}/admin/api/{SHOPIFY_API_VERSION}/collects.json"
+                headers = {"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
+                collect_data = {"collect": {"product_id": pid, "collection_id": int(collection_id)}}
+                resp = http_requests.post(url, headers=headers, json=collect_data, timeout=30)
+                resp.raise_for_status()
+                collection_added += 1
+            except Exception as e:
+                logger.warning(f"[Shopify] Erro ao adicionar produto {pid} à coleção: {e}")
+
+    return jsonify({
+        "ok": True,
+        "updated": updated,
+        "collection_added": collection_added,
+        "errors": errors,
+        "language": nome_idioma,
+    })
 
 
 # ─── Rotas CSV Shopify ────────────────────────────────────
