@@ -195,14 +195,105 @@ def _resize_to_original(img_bytes: bytes, target_size: tuple) -> bytes:
     return buf.getvalue()
 
 
+def _get_aspect_ratio_category(width: int, height: int) -> str:
+    """Classify image aspect ratio. Returns 'chatgpt' for 1:1, 2:3, 3:2; 'gemini' for others."""
+    if width == 0 or height == 0:
+        return "chatgpt"
+
+    ratio = width / height
+    # Define tolerance for matching ratios
+    TOLERANCE = 0.08
+
+    targets = {
+        1.0: "1:1",       # 1:1
+        2 / 3: "2:3",     # 2:3 (portrait)
+        3 / 2: "3:2",     # 3:2 (landscape)
+    }
+
+    for target_ratio, label in targets.items():
+        if abs(ratio - target_ratio) < TOLERANCE:
+            logger.info(f"[Ratio] {width}×{height} → {label} (ratio={ratio:.3f}) → ChatGPT")
+            return "chatgpt"
+
+    logger.info(f"[Ratio] {width}×{height} → ratio={ratio:.3f} → Gemini")
+    return "gemini"
+
+
+def traduzir_imagem_gemini(imagem_bytes: bytes, mime_type: str,
+                            idioma_nome: str, marca_de: str = "", marca_para: str = "",
+                            original_size: tuple = None) -> Optional[bytes]:
+    """Traduz imagem via Google Gemini (Imagen) para proporções não-padrão."""
+    if not GEMINI_AVAILABLE:
+        logger.error("[Gemini Tradução] google-genai não instalado")
+        return None
+
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        logger.error("[Gemini Tradução] GEMINI_API_KEY não configurada")
+        return None
+
+    marca_instrucao = ""
+    if marca_de and marca_para:
+        marca_instrucao = f'\nBRAND REPLACEMENT: Replace the brand "{marca_de}" with "{marca_para}" everywhere it appears (text, logos, labels). Keep the same style and position.\n'
+
+    prompt = PROMPT_TEMPLATE.format(idioma_nome=idioma_nome, marca_instrucao=marca_instrucao)
+
+    client = genai.Client(api_key=api_key)
+    img = Image.open(io.BytesIO(imagem_bytes))
+
+    modelos = [
+        "gemini-2.0-flash-exp-image-generation",
+        "gemini-2.5-flash-image",
+    ]
+
+    for modelo in modelos:
+        try:
+            logger.info(f"[Gemini Tradução] Tentando modelo: {modelo}")
+            response = client.models.generate_content(
+                model=modelo,
+                contents=[prompt, img],
+                config=genai_types.GenerateContentConfig(
+                    response_modalities=["Text", "Image"]
+                )
+            )
+
+            if response.candidates:
+                for part in response.candidates[0].content.parts:
+                    if part.inline_data is not None:
+                        logger.info(f"[Gemini Tradução] Imagem gerada com sucesso via {modelo}")
+                        result_bytes = part.inline_data.data
+                        if original_size:
+                            return _resize_to_original(result_bytes, original_size)
+                        return result_bytes
+
+        except Exception as e:
+            logger.error(f"[Gemini Tradução] {modelo} falhou: {type(e).__name__}: {e}")
+            continue
+
+    logger.error("[Gemini Tradução] Todos os modelos falharam")
+    return None
+
+
 def traduzir_imagem(client: OpenAI, imagem_bytes: bytes, mime_type: str,
                      idioma_nome: str, marca_de: str = "", marca_para: str = "") -> Optional[bytes]:
-    """Traduz imagem via OpenAI API."""
+    """Traduz imagem — ChatGPT para 1:1/2:3/3:2, Gemini para outras proporções."""
 
     # Capturar dimensões originais para preservar após tradução
     original_img = Image.open(io.BytesIO(imagem_bytes))
     original_size = original_img.size  # (width, height)
     logger.info(f"[Tradução] Imagem original: {original_size[0]}×{original_size[1]}")
+
+    # Rotear por proporção
+    engine = _get_aspect_ratio_category(original_size[0], original_size[1])
+
+    if engine == "gemini":
+        result = traduzir_imagem_gemini(
+            imagem_bytes, mime_type, idioma_nome, marca_de, marca_para, original_size
+        )
+        if result:
+            return result
+        # Fallback para ChatGPT se Gemini falhar
+        logger.warning("[Tradução] Gemini falhou, tentando ChatGPT como fallback...")
 
     marca_instrucao = ""
     if marca_de and marca_para:
