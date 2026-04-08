@@ -52,13 +52,17 @@ except ImportError:
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB max upload
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key-change-in-production-" + str(uuid.uuid4()))
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "imagetools-default-secret-key-2024-prod")
 
-# Cloud: usar /tmp para storage efêmero; local: pastas relativas
+# Cloud: usar volume persistente /data se disponível, senão /tmp
 if os.environ.get("RAILWAY_ENVIRONMENT"):
+    # Railway volume mount (must be configured in Railway dashboard)
+    PERSIST_DIR = Path(os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "/data"))
+    if not PERSIST_DIR.exists():
+        PERSIST_DIR = Path(tempfile.gettempdir())
     UPLOAD_FOLDER = Path(tempfile.gettempdir()) / "img-uploads"
     OUTPUT_FOLDER = Path(tempfile.gettempdir()) / "img-output"
-    DB_PATH = Path(tempfile.gettempdir()) / "imagetools.db"
+    DB_PATH = PERSIST_DIR / "imagetools.db"
 else:
     UPLOAD_FOLDER = Path(__file__).parent / "uploads"
     OUTPUT_FOLDER = Path(__file__).parent / "output"
