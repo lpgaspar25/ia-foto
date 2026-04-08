@@ -688,6 +688,22 @@ def auth_save_shopify_store():
         if "." not in store_url:
             store_url = store_url + ".myshopify.com"
 
+    # Validate token by making a test API call
+    try:
+        result = shopify_api_get(store_url, token, "shop.json")
+        shop_info = result.get("shop", {})
+        if not store_name:
+            store_name = shop_info.get("name", store_url)
+    except http_requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 401:
+            return jsonify({"erro": "Token de acesso inválido. Verifique suas credenciais."}), 401
+        elif e.response is not None and e.response.status_code == 404:
+            return jsonify({"erro": "Loja não encontrada. Verifique a URL."}), 404
+        return jsonify({"erro": f"Erro ao validar conexão: {e}"}), 500
+    except Exception as e:
+        logger.error(f"[Shopify] Erro ao validar loja: {e}")
+        return jsonify({"erro": f"Erro ao validar: {e}"}), 500
+
     user_id = session["user_id"]
     conn = get_db()
 
@@ -1174,6 +1190,14 @@ def _clean_store_url(url: str) -> str:
     return url
 
 
+def _extract_product_handle(raw_url: str) -> Optional[str]:
+    """Extract a product handle from a Shopify product URL, or return None."""
+    raw_url = raw_url.replace("https://", "").replace("http://", "").rstrip("/")
+    # Match patterns like: store.com/products/handle or store.com/collections/xxx/products/handle
+    m = re.search(r"/products/([^/?#]+)", "/" + raw_url)
+    return m.group(1) if m else None
+
+
 @app.route("/shopify/copiar", methods=["POST"])
 @login_required_api
 def shopify_copiar():
@@ -1185,7 +1209,9 @@ def shopify_copiar():
     if not source_url:
         return jsonify({"erro": "URL da loja fonte é obrigatória"}), 400
 
-    source_url = _clean_store_url(source_url)
+    # Detect if the URL points to a specific product
+    product_handle = _extract_product_handle(source_url)
+    store_domain = _clean_store_url(source_url)
 
     # Load destination store credentials
     dest_store_url = ""
@@ -1205,25 +1231,36 @@ def shopify_copiar():
     # Fetch products from public endpoint
     try:
         all_products = []
-        page = 1
-        while True:
-            url = f"https://{source_url}/products.json?limit=250&page={page}"
+
+        if product_handle:
+            # Single product by handle
+            url = f"https://{store_domain}/products/{product_handle}.json"
             resp = http_requests.get(url, timeout=30)
             resp.raise_for_status()
-            products = resp.json().get("products", [])
-            all_products.extend(products)
-            if len(products) < 250:
-                break
-            page += 1
-            if page > 10:  # safety limit
-                break
+            product = resp.json().get("product")
+            if product:
+                all_products.append(product)
+        else:
+            # All products from store
+            page = 1
+            while True:
+                url = f"https://{store_domain}/products.json?limit=250&page={page}"
+                resp = http_requests.get(url, timeout=30)
+                resp.raise_for_status()
+                products = resp.json().get("products", [])
+                all_products.extend(products)
+                if len(products) < 250:
+                    break
+                page += 1
+                if page > 10:  # safety limit
+                    break
 
         if not all_products:
-            return jsonify({"erro": "Nenhum produto encontrado na loja ou loja não é pública"}), 400
+            return jsonify({"erro": "Nenhum produto encontrado. Verifique a URL."}), 400
 
     except http_requests.exceptions.HTTPError as e:
         if e.response is not None and e.response.status_code == 404:
-            return jsonify({"erro": "Loja não encontrada. Verifique a URL."}), 404
+            return jsonify({"erro": "Produto ou loja não encontrada. Verifique a URL."}), 404
         return jsonify({"erro": f"Erro ao acessar loja: {e}"}), 500
     except Exception as e:
         logger.error(f"[Shopify Copiar] Erro: {e}")
@@ -1293,7 +1330,7 @@ def shopify_copiar():
         "rows": rows,
         "images": [img for img in images],
         "product_count": product_count,
-        "source_url": source_url,
+        "source_url": store_domain,
         "shopify_store_url": dest_store_url,
         "shopify_token": dest_token,
         "shopify_products": all_products,

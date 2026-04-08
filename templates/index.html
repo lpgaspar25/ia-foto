@@ -1166,6 +1166,41 @@
         </div>
     </div>
 
+    <!-- Modal: Minhas Lojas -->
+    <div class="auth-overlay" id="storesOverlay" onclick="if(event.target===this)closeStoresModal()">
+        <div class="auth-modal" style="max-width:520px;">
+            <button class="auth-close" onclick="closeStoresModal()">&times;</button>
+            <h2>Minhas Lojas Shopify</h2>
+            <div class="auth-subtitle">Gerencie suas lojas conectadas</div>
+
+            <!-- Lista de lojas salvas -->
+            <div id="accountStoresList" style="margin:1rem 0;"></div>
+
+            <!-- Adicionar nova loja -->
+            <div style="border-top:1px solid var(--border); padding-top:1rem; margin-top:1rem;">
+                <h3 style="font-size:0.95rem; color:var(--text-primary); margin-bottom:0.8rem;">Adicionar Nova Loja</h3>
+                <div id="accountStoreError" style="display:none; color:#ef4444; font-size:0.85rem; margin-bottom:0.8rem; padding:0.5rem 0.8rem; background:rgba(239,68,68,0.1); border-radius:6px;"></div>
+                <div id="accountStoreSuccess" style="display:none; color:#10b981; font-size:0.85rem; margin-bottom:0.8rem; padding:0.5rem 0.8rem; background:rgba(16,185,129,0.1); border-radius:6px;"></div>
+                <div class="auth-field">
+                    <label>Nome da Loja <span style="font-weight:400; color:#666;">(opcional)</span></label>
+                    <input type="text" id="accountStoreName" placeholder="Minha Loja">
+                </div>
+                <div class="auth-field">
+                    <label>URL da Loja</label>
+                    <input type="text" id="accountStoreUrl" placeholder="minhaloja.myshopify.com">
+                </div>
+                <div class="auth-field">
+                    <label>Access Token (Admin API)</label>
+                    <input type="password" id="accountStoreToken" placeholder="shpat_xxxxxxxxxxxxx">
+                    <div style="color:var(--text-muted); font-size:0.75rem; margin-top:0.3rem;">
+                        Gere em: Shopify Admin &rarr; Settings &rarr; Apps &rarr; Develop apps &rarr; Admin API access token
+                    </div>
+                </div>
+                <button class="auth-btn" id="btnAddAccountStore" onclick="addAccountStore()">Conectar e Salvar</button>
+            </div>
+        </div>
+    </div>
+
     <div class="container">
 
         <!-- User Bar -->
@@ -1174,6 +1209,7 @@
             <div class="user-bar-info">
                 <span class="user-bar-name">{{ user.nome }}</span>
             </div>
+            <button class="user-bar-btn" onclick="openStoresModal()">Minhas Lojas</button>
             <button class="user-bar-btn" onclick="doLogout()">Sair</button>
             {% else %}
             <button class="user-bar-btn primary" onclick="openAuthModal('login')">Entrar</button>
@@ -1461,12 +1497,12 @@
                         <div class="card">
                             <h2>Loja Fonte (pública)</h2>
                             <p style="color:var(--text-secondary); font-size:0.82rem; margin-bottom:0.8rem;">
-                                Cole a URL de qualquer loja Shopify pública para copiar os produtos.
+                                Cole a URL da loja ou de um produto específico para copiar.
                             </p>
                             <div class="shopify-field">
-                                <label>URL da Loja Fonte</label>
-                                <input type="text" id="shopifySourceUrl" placeholder="loja-exemplo.myshopify.com" oninput="checkCopiarReady()">
-                                <div class="shopify-hint">Ex: loja-exemplo.myshopify.com ou loja-exemplo.com</div>
+                                <label>URL da Loja ou Produto</label>
+                                <input type="text" id="shopifySourceUrl" placeholder="loja.com/products/nome-do-produto" oninput="checkCopiarReady()">
+                                <div class="shopify-hint">Ex: loja.com (todos os produtos) ou loja.com/products/nome-do-produto (apenas 1 produto)</div>
                             </div>
                         </div>
 
@@ -1862,6 +1898,7 @@
                     <div class="user-bar-info">
                         <span class="user-bar-name">${currentUser.nome}</span>
                     </div>
+                    <button class="user-bar-btn" onclick="openStoresModal()">Minhas Lojas</button>
                     <button class="user-bar-btn" onclick="doLogout()">Sair</button>
                 `;
             } else {
@@ -1911,6 +1948,100 @@
                 await fetch(`/auth/shopify-store/${storeId}`, { method: 'DELETE' });
                 savedStores = savedStores.filter(s => s.id !== storeId);
                 if (selectedDestStoreId === storeId) selectedDestStoreId = null;
+                renderSavedStores();
+                checkCopiarReady();
+            } catch (err) {
+                console.error('Erro ao remover loja:', err);
+            }
+        }
+
+        // ─── Stores Modal (account-level) ───
+        function openStoresModal() {
+            renderAccountStores();
+            document.getElementById('storesOverlay').classList.add('visible');
+        }
+
+        function closeStoresModal() {
+            document.getElementById('storesOverlay').classList.remove('visible');
+        }
+
+        function renderAccountStores() {
+            const list = document.getElementById('accountStoresList');
+            if (savedStores.length === 0) {
+                list.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:1rem; font-size:0.9rem;">Nenhuma loja conectada ainda.</div>';
+                return;
+            }
+            list.innerHTML = '';
+            savedStores.forEach(store => {
+                const item = document.createElement('div');
+                item.className = 'saved-store-item';
+                item.innerHTML = `
+                    <div style="flex:1;">
+                        <div class="saved-store-name">${store.store_name || store.store_url}</div>
+                        <div class="saved-store-url">${store.store_url}</div>
+                    </div>
+                    <button class="saved-store-remove" onclick="removeAccountStore(${store.id})" title="Remover">✕</button>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        async function addAccountStore() {
+            const storeName = document.getElementById('accountStoreName').value.trim();
+            const storeUrl = document.getElementById('accountStoreUrl').value.trim();
+            const token = document.getElementById('accountStoreToken').value.trim();
+            const errorEl = document.getElementById('accountStoreError');
+            const successEl = document.getElementById('accountStoreSuccess');
+            const btn = document.getElementById('btnAddAccountStore');
+
+            errorEl.style.display = 'none';
+            successEl.style.display = 'none';
+
+            if (!storeUrl || !token) {
+                errorEl.textContent = 'URL e Access Token são obrigatórios.';
+                errorEl.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Validando...';
+
+            try {
+                const resp = await fetch('/auth/shopify-store', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ store_url: storeUrl, token: token, store_name: storeName }),
+                });
+                const data = await resp.json();
+                if (data.erro) {
+                    errorEl.textContent = data.erro;
+                    errorEl.style.display = 'block';
+                    return;
+                }
+                // Success
+                successEl.textContent = 'Loja conectada com sucesso!';
+                successEl.style.display = 'block';
+                document.getElementById('accountStoreName').value = '';
+                document.getElementById('accountStoreUrl').value = '';
+                document.getElementById('accountStoreToken').value = '';
+                await loadSavedStores();
+                renderAccountStores();
+            } catch (err) {
+                errorEl.textContent = 'Erro de conexão: ' + err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Conectar e Salvar';
+            }
+        }
+
+        async function removeAccountStore(storeId) {
+            if (!confirm('Remover esta loja?')) return;
+            try {
+                await fetch(`/auth/shopify-store/${storeId}`, { method: 'DELETE' });
+                savedStores = savedStores.filter(s => s.id !== storeId);
+                if (selectedDestStoreId === storeId) selectedDestStoreId = null;
+                renderAccountStores();
                 renderSavedStores();
                 checkCopiarReady();
             } catch (err) {
