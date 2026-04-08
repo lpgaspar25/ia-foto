@@ -93,12 +93,23 @@ def init_db():
             user_id INTEGER NOT NULL,
             store_name TEXT NOT NULL DEFAULT '',
             store_url TEXT NOT NULL,
-            access_token TEXT NOT NULL,
+            access_token TEXT NOT NULL DEFAULT '',
+            client_id TEXT NOT NULL DEFAULT '',
+            client_secret TEXT NOT NULL DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
     """)
+    # Add columns if they don't exist (migration for existing DBs)
+    try:
+        conn.execute("ALTER TABLE shopify_stores ADD COLUMN client_id TEXT NOT NULL DEFAULT ''")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE shopify_stores ADD COLUMN client_secret TEXT NOT NULL DEFAULT ''")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -730,6 +741,135 @@ def auth_save_shopify_store():
     conn.close()
 
     return jsonify({"ok": True, "store_id": store_id})
+
+
+# ─── Shopify OAuth ─────────────────────────────────────────
+
+SHOPIFY_OAUTH_SCOPES = "read_products,write_products,read_themes,read_product_listings"
+
+
+@app.route("/shopify/oauth/start", methods=["POST"])
+@login_required_api
+def shopify_oauth_start():
+    """Initiate Shopify OAuth flow."""
+    data = request.get_json()
+    store_url = (data.get("store_url") or "").strip()
+    client_id = (data.get("client_id") or "").strip()
+    client_secret = (data.get("client_secret") or "").strip()
+    store_name = (data.get("store_name") or "").strip()
+
+    if not store_url or not client_id or not client_secret:
+        return jsonify({"erro": "URL da loja, Client ID e Chave Secreta são obrigatórios"}), 400
+
+    store_url = store_url.replace("https://", "").replace("http://", "").rstrip("/")
+    if not store_url.endswith(".myshopify.com"):
+        if "." not in store_url:
+            store_url = store_url + ".myshopify.com"
+
+    # Generate a unique state to prevent CSRF
+    state = str(uuid.uuid4())
+
+    # Save OAuth state in session
+    session["shopify_oauth"] = {
+        "store_url": store_url,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "store_name": store_name,
+        "state": state,
+    }
+
+    # Build the callback URL
+    callback_url = request.host_url.rstrip("/") + "/shopify/oauth/callback"
+
+    # Build Shopify OAuth authorization URL
+    auth_url = (
+        f"https://{store_url}/admin/oauth/authorize"
+        f"?client_id={client_id}"
+        f"&scope={SHOPIFY_OAUTH_SCOPES}"
+        f"&redirect_uri={callback_url}"
+        f"&state={state}"
+    )
+
+    return jsonify({"auth_url": auth_url})
+
+
+@app.route("/shopify/oauth/callback")
+def shopify_oauth_callback():
+    """Handle Shopify OAuth callback — exchange code for access token."""
+    code = request.args.get("code")
+    state = request.args.get("state")
+    shop = request.args.get("shop", "")
+
+    oauth_data = session.get("shopify_oauth")
+    if not oauth_data:
+        return "<h2>Erro: sessão OAuth expirada. Volte ao app e tente novamente.</h2>", 400
+
+    # Validate state to prevent CSRF
+    if state != oauth_data.get("state"):
+        return "<h2>Erro: estado OAuth inválido.</h2>", 400
+
+    if not code:
+        return "<h2>Erro: código de autorização não recebido.</h2>", 400
+
+    store_url = oauth_data["store_url"]
+    client_id = oauth_data["client_id"]
+    client_secret = oauth_data["client_secret"]
+    store_name = oauth_data.get("store_name", "")
+
+    # Exchange code for access token
+    try:
+        token_url = f"https://{store_url}/admin/oauth/access_token"
+        resp = http_requests.post(token_url, json={
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "code": code,
+        }, timeout=30)
+        resp.raise_for_status()
+        token_data = resp.json()
+        access_token = token_data.get("access_token", "")
+    except Exception as e:
+        logger.error(f"[Shopify OAuth] Erro ao trocar código: {e}")
+        return f"<h2>Erro ao obter token: {e}</h2>", 500
+
+    if not access_token:
+        return "<h2>Erro: token de acesso não recebido.</h2>", 500
+
+    # Get shop name from API
+    if not store_name:
+        try:
+            shop_data = shopify_api_get(store_url, access_token, "shop.json")
+            store_name = shop_data.get("shop", {}).get("name", store_url)
+        except Exception:
+            store_name = store_url
+
+    # Save the store with credentials
+    user_id = session["user_id"]
+    conn = get_db()
+
+    existing = conn.execute(
+        "SELECT id FROM shopify_stores WHERE user_id = ? AND store_url = ?",
+        (user_id, store_url)
+    ).fetchone()
+
+    if existing:
+        conn.execute(
+            "UPDATE shopify_stores SET access_token = ?, store_name = ?, client_id = ?, client_secret = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (access_token, store_name, client_id, client_secret, existing["id"])
+        )
+    else:
+        conn.execute(
+            "INSERT INTO shopify_stores (user_id, store_name, store_url, access_token, client_id, client_secret) VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, store_name, store_url, access_token, client_id, client_secret)
+        )
+
+    conn.commit()
+    conn.close()
+
+    # Clear OAuth session data
+    session.pop("shopify_oauth", None)
+
+    # Redirect back to the app with success
+    return redirect("/?shopify_connected=1")
 
 
 @app.route("/auth/shopify-store/<int:store_id>")
