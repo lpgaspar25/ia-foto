@@ -1883,7 +1883,8 @@ def csv_traduzir_stream():
                             preview = f"data:image/jpeg;base64,{result['preview_b64']}" if result["preview_b64"] else ""
                             yield f"data: {json.dumps({'type': 'image_done', 'current': current, 'total': total, 'image': result['img_filename'], 'language': nome_idioma, 'lang_code': lang, 'output_file': result['nome_saida'], 'preview': preview})}\n\n"
                         else:
-                            yield f"data: {json.dumps({'type': 'error', 'message': f'Falha ao traduzir {result[\"img_filename\"]} → {nome_idioma}', 'current': current, 'total': total})}\n\n"
+                            fname = result["img_filename"]
+                            yield f"data: {json.dumps({'type': 'error', 'message': f'Falha ao traduzir {fname} → {nome_idioma}', 'current': current, 'total': total})}\n\n"
 
             # ── ETAPA 2: Traduzir texto dos produtos ──
             if traduzir_texto and unique_handles:
