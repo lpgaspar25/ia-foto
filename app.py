@@ -781,7 +781,7 @@ def auth_save_shopify_store():
 
 # ─── Shopify OAuth ─────────────────────────────────────────
 
-SHOPIFY_OAUTH_SCOPES = "read_products,write_products,read_themes,read_product_listings,read_collections,write_collections"
+SHOPIFY_OAUTH_SCOPES = "read_products,write_products,read_themes,write_themes,read_product_listings,write_product_listings,read_publications,write_publications,read_content,write_content"
 
 
 @app.route("/shopify/oauth/start", methods=["POST"])
@@ -863,6 +863,8 @@ def shopify_oauth_callback():
         resp.raise_for_status()
         token_data = resp.json()
         access_token = token_data.get("access_token", "")
+        granted_scopes = token_data.get("scope", "")
+        logger.info(f"[Shopify OAuth] Token obtido. Escopos concedidos: {granted_scopes}")
     except Exception as e:
         logger.error(f"[Shopify OAuth] Erro ao trocar código: {e}")
         return f"<h2>Erro ao obter token: {e}</h2>", 500
@@ -1230,7 +1232,7 @@ def download(job_id, nome_arquivo):
 
 # ─── Shopify API Helpers ─────────────────────────────────
 
-SHOPIFY_API_VERSION = "2024-01"
+SHOPIFY_API_VERSION = "2026-04"
 
 
 def shopify_api_get(store_url: str, token: str, endpoint: str, params: dict = None) -> dict:
@@ -2042,6 +2044,9 @@ def shopify_publicar():
                 url = f"https://{store_url}/admin/api/{SHOPIFY_API_VERSION}/products.json"
                 headers = {"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
                 resp = http_requests.post(url, headers=headers, json={"product": product_data}, timeout=60)
+                if resp.status_code >= 400:
+                    err_body = resp.text[:500]
+                    logger.error(f"[Shopify] Erro {resp.status_code} ao criar {handle}: {err_body}")
                 resp.raise_for_status()
                 new_product = resp.json().get("product", {})
                 new_id = new_product.get("id")
