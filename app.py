@@ -928,6 +928,91 @@ def auth_get_shopify_store(store_id):
     return jsonify({"store": dict(store)})
 
 
+@app.route("/auth/shopify-store/<int:store_id>/reconnect", methods=["POST"])
+@login_required_api
+def auth_reconnect_shopify_store(store_id):
+    """Reconnect a store via OAuth using saved credentials."""
+    user_id = session["user_id"]
+    conn = get_db()
+    store = conn.execute(
+        "SELECT id, store_url, client_id, client_secret, store_name FROM shopify_stores WHERE id = ? AND user_id = ?",
+        (store_id, user_id)
+    ).fetchone()
+    conn.close()
+
+    if not store:
+        return jsonify({"erro": "Loja não encontrada"}), 404
+
+    store_url = store["store_url"]
+    client_id = store["client_id"]
+    client_secret = store["client_secret"]
+
+    if not client_id or not client_secret:
+        return jsonify({"erro": "Credenciais OAuth não encontradas. Remova e adicione a loja novamente."}), 400
+
+    state = str(uuid.uuid4())
+    session["shopify_oauth"] = {
+        "store_url": store_url,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "store_name": store["store_name"] or "",
+        "state": state,
+    }
+
+    callback_url = request.host_url.rstrip("/") + "/shopify/oauth/callback"
+    auth_url = (
+        f"https://{store_url}/admin/oauth/authorize"
+        f"?client_id={client_id}"
+        f"&scope={SHOPIFY_OAUTH_SCOPES}"
+        f"&redirect_uri={callback_url}"
+        f"&state={state}"
+    )
+
+    return jsonify({"auth_url": auth_url})
+
+
+@app.route("/auth/shopify-store/<int:store_id>/test", methods=["POST"])
+@login_required_api
+def auth_test_shopify_store(store_id):
+    """Test store connection by making a simple API call."""
+    user_id = session["user_id"]
+    conn = get_db()
+    store = conn.execute(
+        "SELECT store_url, access_token FROM shopify_stores WHERE id = ? AND user_id = ?",
+        (store_id, user_id)
+    ).fetchone()
+    conn.close()
+
+    if not store:
+        return jsonify({"erro": "Loja não encontrada"}), 404
+
+    store_url = store["store_url"]
+    token = store["access_token"]
+
+    if not token:
+        return jsonify({"ok": False, "erro": "Token de acesso não configurado. Reconecte a loja."})
+
+    try:
+        result = shopify_api_get(store_url, token, "shop.json")
+        shop = result.get("shop", {})
+        # Also test products scope
+        products_result = shopify_api_get(store_url, token, "products/count.json")
+        count = products_result.get("count", 0)
+        return jsonify({
+            "ok": True,
+            "shop_name": shop.get("name", ""),
+            "plan": shop.get("plan_display_name", ""),
+            "product_count": count,
+            "api_version": SHOPIFY_API_VERSION,
+        })
+    except http_requests.exceptions.HTTPError as e:
+        status = e.response.status_code if e.response is not None else 0
+        body = e.response.text[:300] if e.response is not None else ""
+        return jsonify({"ok": False, "erro": f"HTTP {status}: {body}"})
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)})
+
+
 @app.route("/auth/shopify-store/<int:store_id>", methods=["DELETE"])
 @login_required_api
 def auth_delete_shopify_store(store_id):
@@ -2132,6 +2217,19 @@ def shopify_publicar():
                 updated += 1
                 product_ids_for_collection.append(product_id)
                 logger.info(f"[Shopify] Produto {handle} ({product_id}) atualizado com sucesso")
+        except http_requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else 0
+            body = e.response.text[:300] if e.response is not None else ""
+            logger.error(f"[Shopify] HTTP {status} ao publicar {handle}: {body}")
+            # Show user-friendly error with details
+            detail = body
+            try:
+                err_json = e.response.json() if e.response is not None else {}
+                if "errors" in err_json:
+                    detail = str(err_json["errors"])
+            except Exception:
+                pass
+            errors.append(f"{handle}: HTTP {status} - {detail[:200]}")
         except Exception as e:
             logger.error(f"[Shopify] Erro ao publicar {handle}: {e}")
             errors.append(f"{handle}: {str(e)}")

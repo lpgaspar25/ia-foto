@@ -2004,15 +2004,58 @@
             savedStores.forEach(store => {
                 const item = document.createElement('div');
                 item.className = 'saved-store-item';
+                item.style.flexWrap = 'wrap';
                 item.innerHTML = `
-                    <div style="flex:1;">
+                    <div style="flex:1; min-width:150px;">
                         <div class="saved-store-name">${store.store_name || store.store_url}</div>
                         <div class="saved-store-url">${store.store_url}</div>
+                        <div id="storeStatus_${store.id}" style="font-size:0.75rem; margin-top:0.3rem;"></div>
                     </div>
-                    <button class="saved-store-remove" onclick="removeAccountStore(${store.id})" title="Remover">✕</button>
+                    <div style="display:flex; gap:0.4rem; align-items:center;">
+                        <button class="btn-csv" onclick="testStoreConnection(${store.id})" style="padding:0.3rem 0.7rem; font-size:0.75rem; margin:0;" title="Testar conexão">Testar</button>
+                        <button class="btn-csv" onclick="reconnectStore(${store.id})" style="padding:0.3rem 0.7rem; font-size:0.75rem; margin:0; background:var(--accent3); color:white;" title="Reconectar via OAuth">Reconectar</button>
+                        <button class="saved-store-remove" onclick="removeAccountStore(${store.id})" title="Remover">&#10005;</button>
+                    </div>
                 `;
                 list.appendChild(item);
             });
+        }
+
+        async function reconnectStore(storeId) {
+            try {
+                const resp = await fetch(`/auth/shopify-store/${storeId}/reconnect`, { method: 'POST' });
+                const data = await resp.json();
+                if (data.erro) {
+                    const el = document.getElementById(`storeStatus_${storeId}`);
+                    if (el) { el.textContent = data.erro; el.style.color = '#ef4444'; }
+                    return;
+                }
+                window.location.href = data.auth_url;
+            } catch (err) {
+                alert('Erro: ' + err.message);
+            }
+        }
+
+        async function testStoreConnection(storeId) {
+            const el = document.getElementById(`storeStatus_${storeId}`);
+            if (el) { el.textContent = 'Testando...'; el.style.color = 'var(--text-muted)'; }
+            try {
+                const resp = await fetch(`/auth/shopify-store/${storeId}/test`, { method: 'POST' });
+                const data = await resp.json();
+                if (data.ok) {
+                    if (el) {
+                        el.style.color = '#10b981';
+                        el.textContent = `Conectado! ${data.shop_name} | ${data.product_count} produtos | API ${data.api_version}`;
+                    }
+                } else {
+                    if (el) {
+                        el.style.color = '#ef4444';
+                        el.textContent = data.erro || 'Falha na conexão';
+                    }
+                }
+            } catch (err) {
+                if (el) { el.style.color = '#ef4444'; el.textContent = 'Erro: ' + err.message; }
+            }
         }
 
         async function startShopifyOAuth() {
