@@ -294,8 +294,10 @@ def traduzir_imagem_gemini(imagem_bytes: bytes, mime_type: str,
     img = Image.open(io.BytesIO(imagem_bytes))
 
     modelos = [
-        "gemini-2.0-flash-exp-image-generation",
+        "gemini-3-pro-image",
+        "gemini-3.1-flash-image-preview",
         "gemini-2.5-flash-image",
+        "gemini-2.0-flash-exp-image-generation",
     ]
 
     for modelo in modelos:
@@ -328,24 +330,21 @@ def traduzir_imagem_gemini(imagem_bytes: bytes, mime_type: str,
 
 def traduzir_imagem(client: OpenAI, imagem_bytes: bytes, mime_type: str,
                      idioma_nome: str, marca_de: str = "", marca_para: str = "") -> Optional[bytes]:
-    """Traduz imagem — ChatGPT para 1:1/2:3/3:2, Gemini para outras proporções."""
+    """Traduz imagem — Gemini (modelo mais avançado) como principal, ChatGPT como fallback."""
 
     # Capturar dimensões originais para preservar após tradução
     original_img = Image.open(io.BytesIO(imagem_bytes))
     original_size = original_img.size  # (width, height)
     logger.info(f"[Tradução] Imagem original: {original_size[0]}×{original_size[1]}")
 
-    # Rotear por proporção
-    engine = _get_aspect_ratio_category(original_size[0], original_size[1])
-
-    if engine == "gemini":
-        result = traduzir_imagem_gemini(
-            imagem_bytes, mime_type, idioma_nome, marca_de, marca_para, original_size
-        )
-        if result:
-            return result
-        # Fallback para ChatGPT se Gemini falhar
-        logger.warning("[Tradução] Gemini falhou, tentando ChatGPT como fallback...")
+    # Tentar Gemini primeiro (melhor qualidade, preserva aspect ratio)
+    result = traduzir_imagem_gemini(
+        imagem_bytes, mime_type, idioma_nome, marca_de, marca_para, original_size
+    )
+    if result:
+        return result
+    # Fallback para ChatGPT se Gemini falhar
+    logger.warning("[Tradução] Gemini falhou, tentando ChatGPT como fallback...")
 
     marca_instrucao = ""
     if marca_de and marca_para:
