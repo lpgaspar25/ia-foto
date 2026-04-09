@@ -857,6 +857,30 @@ def auth_register():
         return jsonify({"erro": "Erro ao criar conta"}), 500
 
 
+@app.route("/auth/invite/<token>")
+def auth_invite_check(token):
+    """Validate an invite token and return invite info."""
+    conn = get_db()
+    invite = conn.execute("""
+        SELECT tm.email, tm.status, u.nome as owner_name
+        FROM team_members tm
+        JOIN users u ON u.id = tm.owner_id
+        WHERE tm.invite_token = ?
+    """, (token,)).fetchone()
+    conn.close()
+
+    if not invite:
+        return jsonify({"erro": "Convite inválido ou expirado"}), 404
+    if invite["status"] == "active":
+        return jsonify({"erro": "Este convite já foi aceito"}), 400
+
+    return jsonify({
+        "ok": True,
+        "email": invite["email"],
+        "owner_name": invite["owner_name"],
+    })
+
+
 @app.route("/auth/login", methods=["POST"])
 def auth_login():
     """Log in with email and password."""

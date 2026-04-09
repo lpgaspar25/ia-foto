@@ -2463,6 +2463,31 @@
                     }
                 }, 500);
             }
+
+            // Check if arriving via invite link
+            const inviteToken = params.get('invite');
+            if (inviteToken && !currentUser) {
+                fetch(`/auth/invite/${inviteToken}`).then(r => r.json()).then(data => {
+                    if (data.ok) {
+                        openAuthModal('register');
+                        document.getElementById('registerEmail').value = data.email || '';
+                        const subtitle = document.querySelector('#authRegister .auth-subtitle');
+                        if (subtitle) {
+                            subtitle.innerHTML = `<strong>${data.owner_name}</strong> te convidou para a equipe. Crie sua conta para aceitar.`;
+                            subtitle.style.color = '#10b981';
+                        }
+                    } else {
+                        openAuthModal('register');
+                        const errEl = document.getElementById('registerError');
+                        errEl.textContent = data.erro || 'Convite inválido';
+                        errEl.style.display = 'block';
+                    }
+                    window.history.replaceState({}, '', '/');
+                }).catch(() => {
+                    openAuthModal('register');
+                    window.history.replaceState({}, '', '/');
+                });
+            }
         });
 
         // ─── Format Toggle ───
