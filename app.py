@@ -546,7 +546,7 @@ CRITICAL — NATURAL LANGUAGE:
 
 COMMON MISTAKES TO AVOID (Portuguese → Bad English → Good English):
 - "eternizar" → NOT "eternalize" → USE "cherish forever" / "keep close forever" / "treasure"
-- "emocionar" → NOT "move emotions" → USE "touch your heart" / "warm your heart"
+- "emocionar" / "presente para emocionar" → NOT "move emotions" / "heartwarming gift" → USE "a touching gift" / "touch your heart"
 - "carinho" → NOT "affection" → USE "love" / "warmth"
 - "jóia" → NOT "jewel" → USE "piece of jewelry" / "jewelry"
 - "não estar mais presente fisicamente" → NOT "no longer physically present" → USE "no longer with us"
