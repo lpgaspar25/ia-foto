@@ -1939,10 +1939,25 @@ def shopify_publicar():
                         "tags": row.get("Tags", ""),
                     }
 
+    # Load image mapping for this language (original_url -> relative_path)
+    img_mapping = {}
+    lang_dir = job_dir / lang
+    mapping_path = lang_dir / "img_mapping.json"
+    if mapping_path.exists():
+        with open(mapping_path) as f:
+            img_mapping = json.load(f)
+
+    # Identify description images per handle from state
+    state_images = state.get("images", [])
+    desc_urls_by_handle = {}  # {handle: set(original_urls)}
+    for img in state_images:
+        if img.get("source") == "description":
+            h = img.get("handle", "")
+            desc_urls_by_handle.setdefault(h, set()).add(img["url"])
+
     # Upload translated images and create/update products
     updated = 0
     errors = []
-    lang_dir = job_dir / lang
     product_ids_for_collection = []
 
     # Group products by handle (avoid duplicates)
@@ -1980,7 +1995,7 @@ def shopify_publicar():
             if original_options:
                 product_data["options"] = [{"name": o.get("name", ""), "values": o.get("values", [])} for o in original_options]
 
-        # Apply text translations (base from CSV)
+        # Apply text translations (base from CSV — preserves HTML structure + images)
         if handle in text_translations:
             tt = text_translations[handle]
             if tt.get("title"):
@@ -2013,8 +2028,11 @@ def shopify_publicar():
         if template_suffix:
             product_data["template_suffix"] = template_suffix
 
-        # Collect translated images
+        # Collect translated images and track description image filenames
         translated_images = []
+        desc_filenames = set()  # filenames of description images (for CDN matching)
+        desc_orig_urls = desc_urls_by_handle.get(handle, set())
+
         if lang_dir.exists():
             for img_file in lang_dir.iterdir():
                 if img_file.is_file() and img_file.suffix in (".webp", ".jpg", ".jpeg", ".png") and handle in img_file.stem:
@@ -2024,6 +2042,10 @@ def shopify_publicar():
                         "attachment": img_b64,
                         "filename": img_file.name,
                     })
+                    # Check if this is a description image
+                    for orig_url, rel_path in img_mapping.items():
+                        if orig_url in desc_orig_urls and Path(rel_path).name == img_file.name:
+                            desc_filenames.add(img_file.name)
 
         # For copy: also include original images that weren't translated
         if is_copy and not translated_images:
@@ -2052,6 +2074,53 @@ def shopify_publicar():
                 new_id = new_product.get("id")
                 if new_id:
                     product_ids_for_collection.append(new_id)
+
+                # ── Replace description image URLs in body_html with CDN URLs ──
+                if new_id and desc_filenames:
+                    new_images = new_product.get("images", [])
+                    # Build filename → CDN URL map
+                    cdn_map = {}
+                    for cdn_img in new_images:
+                        cdn_src = cdn_img.get("src", "")
+                        cdn_fname = cdn_src.split("/")[-1].split("?")[0]
+                        cdn_map[cdn_fname] = cdn_src
+
+                    body = product_data.get("body_html", "") or ""
+                    body_updated = False
+
+                    # Replace relative paths (from CSV) with CDN URLs
+                    for orig_url, rel_path in img_mapping.items():
+                        if orig_url in desc_orig_urls:
+                            fname = Path(rel_path).name
+                            cdn_url = cdn_map.get(fname)
+                            if cdn_url:
+                                if rel_path in body:
+                                    body = body.replace(rel_path, cdn_url)
+                                    body_updated = True
+                                elif fname in body:
+                                    body = body.replace(fname, cdn_url)
+                                    body_updated = True
+
+                    # If no URL replacements happened (e.g. user edited text, images lost),
+                    # append translated description images at the end of body_html
+                    if not body_updated and desc_filenames:
+                        img_tags = []
+                        for orig_url, rel_path in img_mapping.items():
+                            if orig_url in desc_orig_urls:
+                                fname = Path(rel_path).name
+                                cdn_url = cdn_map.get(fname)
+                                if cdn_url:
+                                    img_tags.append(f'<p><img src="{cdn_url}" alt=""></p>')
+                        if img_tags:
+                            body = body + "\n" + "\n".join(img_tags)
+                            body_updated = True
+
+                    if body_updated:
+                        put_url = f"https://{store_url}/admin/api/{SHOPIFY_API_VERSION}/products/{new_id}.json"
+                        http_requests.put(put_url, headers=headers,
+                                          json={"product": {"id": new_id, "body_html": body}}, timeout=30)
+                        logger.info(f"[Shopify] body_html de {handle} atualizado com imagens de descrição")
+
                 updated += 1
                 logger.info(f"[Shopify] Produto {handle} criado com sucesso na loja destino")
             else:
@@ -2429,6 +2498,14 @@ def csv_traduzir_stream():
                 csv_path = lang_dir / f"products_export_{lang}.csv"
                 with open(csv_path, "w", encoding="utf-8") as fout:
                     fout.write(csv_content)
+
+            # Save image mapping for publish route (original_url -> translated_filename)
+            if mapping:
+                lang_dir = job_dir / lang
+                lang_dir.mkdir(exist_ok=True)
+                mapping_path = lang_dir / "img_mapping.json"
+                with open(mapping_path, "w") as fmap:
+                    json.dump(mapping, fmap, ensure_ascii=False)
 
             yield f"data: {json.dumps({'type': 'complete', 'lang': lang, 'total_translated': current})}\n\n"
 

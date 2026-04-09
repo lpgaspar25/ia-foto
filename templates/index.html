@@ -2948,15 +2948,18 @@
 
                 const newTitle = titleEl.value.trim();
                 const newBody = bodyEl.value.trim();
-                const plainOriginal = stripHtmlTags(p.translated_body_html);
+                const plainOriginal = stripHtmlTags(p.translated_body_html || p.body_html || '').trim();
 
-                // Always include edits for copy mode (all products are new)
-                // Convert plain text back to HTML for Shopify
-                const bodyHtml = plainTextToHtml(newBody);
-                edits[p.handle] = {
-                    title: newTitle,
-                    body_html: bodyHtml,
-                };
+                const edit = { title: newTitle };
+
+                // Only send body_html if user actually changed the text.
+                // When unchanged, the backend uses the CSV-translated HTML
+                // which preserves the full HTML structure including <img> tags.
+                if (newBody !== plainOriginal) {
+                    edit.body_html = plainTextToHtml(newBody);
+                }
+
+                edits[p.handle] = edit;
             });
             return edits;
         }
