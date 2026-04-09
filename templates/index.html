@@ -954,8 +954,11 @@
             box-shadow: 0 0 0 3px var(--accent3-glow);
         }
         .product-edit-field textarea {
-            min-height: 80px;
+            min-height: 150px;
             resize: vertical;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-wrap: break-word;
         }
         .product-edit-toggle {
             display: flex;
@@ -2655,6 +2658,29 @@
             }
         }
 
+        function stripHtmlTags(html) {
+            if (!html) return '';
+            // Convert <br>, <p>, <div>, <h*> to newlines, then strip tags
+            return html
+                .replace(/<br\s*\/?>/gi, '\n')
+                .replace(/<\/(p|div|h[1-6]|li)>/gi, '\n')
+                .replace(/<(p|div|h[1-6]|li)[^>]*>/gi, '')
+                .replace(/<[^>]+>/g, '')
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&quot;/g, '"')
+                .replace(/&#39;/g, "'")
+                .replace(/&nbsp;/g, ' ')
+                .replace(/\n{3,}/g, '\n\n')
+                .trim();
+        }
+
+        function autoResizeTextarea(el) {
+            el.style.height = 'auto';
+            el.style.height = el.scrollHeight + 'px';
+        }
+
         function renderProductEditor(products) {
             const container = document.getElementById('shopifyProductsList');
             container.innerHTML = '';
@@ -2662,6 +2688,7 @@
             products.forEach((p, idx) => {
                 const card = document.createElement('div');
                 card.className = 'product-edit-card';
+                const plainDesc = stripHtmlTags(p.translated_body_html);
                 card.innerHTML = `
                     <div class="product-edit-header">
                         <span class="product-edit-handle">${p.handle}</span>
@@ -2678,11 +2705,17 @@
                         <input type="text" id="editTitle_${idx}" value="${escapeAttr(p.translated_title)}" data-handle="${p.handle}">
                     </div>
                     <div class="product-edit-field">
-                        <label>Descrição (HTML)</label>
-                        <textarea id="editBody_${idx}" data-handle="${p.handle}">${escapeHtml(p.translated_body_html)}</textarea>
+                        <label>Descrição</label>
+                        <textarea id="editBody_${idx}" data-handle="${p.handle}" oninput="autoResizeTextarea(this)">${escapeHtml(plainDesc)}</textarea>
                     </div>
                 `;
                 container.appendChild(card);
+
+                // Auto-resize after render
+                requestAnimationFrame(() => {
+                    const ta = document.getElementById('editBody_' + idx);
+                    if (ta) autoResizeTextarea(ta);
+                });
             });
 
             if (products.length === 0) {
@@ -2718,6 +2751,12 @@
             return document.getElementById('shopifyTemplateSelect').value;
         }
 
+        function plainTextToHtml(text) {
+            if (!text) return '';
+            // Convert plain text lines to HTML paragraphs
+            return text.split('\n').filter(l => l.trim()).map(l => `<p>${escapeHtml(l.trim())}</p>`).join('\n');
+        }
+
         function getProductEdits() {
             const edits = {};
             shopifyPreviewProducts.forEach((p, idx) => {
@@ -2727,14 +2766,15 @@
 
                 const newTitle = titleEl.value.trim();
                 const newBody = bodyEl.value.trim();
+                const plainOriginal = stripHtmlTags(p.translated_body_html);
 
-                // Only include if changed from translated version
-                if (newTitle !== p.translated_title || newBody !== p.translated_body_html) {
-                    edits[p.handle] = {
-                        title: newTitle,
-                        body_html: newBody,
-                    };
-                }
+                // Always include edits for copy mode (all products are new)
+                // Convert plain text back to HTML for Shopify
+                const bodyHtml = plainTextToHtml(newBody);
+                edits[p.handle] = {
+                    title: newTitle,
+                    body_html: bodyHtml,
+                };
             });
             return edits;
         }

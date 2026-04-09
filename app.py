@@ -749,7 +749,7 @@ def auth_save_shopify_store():
 
 # ─── Shopify OAuth ─────────────────────────────────────────
 
-SHOPIFY_OAUTH_SCOPES = "read_products,write_products,read_themes,read_product_listings"
+SHOPIFY_OAUTH_SCOPES = "read_products,write_products,read_themes,read_product_listings,read_collections,write_collections"
 
 
 @app.route("/shopify/oauth/start", methods=["POST"])
@@ -1918,6 +1918,22 @@ def shopify_publicar():
             product_data["tags"] = product.get("tags", "")
             product_data["product_type"] = product.get("product_type", "")
             product_data["vendor"] = product.get("vendor", "")
+            # Copy variants (price, SKU, etc.)
+            original_variants = product.get("variants", [])
+            if original_variants:
+                product_data["variants"] = []
+                for v in original_variants:
+                    variant = {}
+                    for key in ("price", "compare_at_price", "sku", "weight", "weight_unit",
+                                "inventory_quantity", "option1", "option2", "option3",
+                                "requires_shipping", "taxable"):
+                        if v.get(key) is not None:
+                            variant[key] = v[key]
+                    product_data["variants"].append(variant)
+            # Copy options (Size, Color, etc.)
+            original_options = product.get("options", [])
+            if original_options:
+                product_data["options"] = [{"name": o.get("name", ""), "values": o.get("values", [])} for o in original_options]
 
         # Apply text translations (base from CSV)
         if handle in text_translations:
@@ -1936,6 +1952,17 @@ def shopify_publicar():
                 product_data["title"] = edits["title"]
             if edits.get("body_html"):
                 product_data["body_html"] = edits["body_html"]
+
+        # Generate translated handle from title for copy mode
+        if is_copy and product_data.get("title"):
+            import unicodedata
+            slug = product_data["title"].lower().strip()
+            slug = unicodedata.normalize("NFKD", slug).encode("ascii", "ignore").decode("ascii")
+            slug = re.sub(r"[^a-z0-9\s-]", "", slug)
+            slug = re.sub(r"[\s_]+", "-", slug).strip("-")
+            slug = re.sub(r"-{2,}", "-", slug)
+            if slug:
+                product_data["handle"] = slug
 
         # Apply template suffix
         if template_suffix:
