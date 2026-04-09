@@ -2209,9 +2209,21 @@
                 });
                 const data = await resp.json();
                 if (data.erro) { errorEl.textContent = data.erro; errorEl.style.display = 'block'; return; }
-                successEl.textContent = data.status === 'active'
-                    ? `${email} adicionado com sucesso!`
-                    : `Convite enviado para ${email}. O membro precisa criar conta com este email.`;
+                if (data.status === 'active') {
+                    successEl.innerHTML = `<strong>${email}</strong> adicionado com sucesso!`;
+                } else if (data.email_sent) {
+                    successEl.innerHTML = `Email de convite enviado para <strong>${email}</strong>! O membro deve clicar no link do email para criar a conta.`;
+                } else {
+                    const url = data.invite_url || '';
+                    successEl.innerHTML = `
+                        Convite criado para <strong>${email}</strong>.<br>
+                        <span style="font-size:0.8rem; color:#6b7280;">Envie o link abaixo para o membro criar a conta:</span><br>
+                        <div style="margin-top:0.5rem; display:flex; gap:0.5rem; align-items:center;">
+                            <input type="text" value="${url}" readonly style="flex:1; font-size:0.8rem; padding:0.4rem 0.6rem; border:1px solid var(--border); border-radius:6px; background:var(--bg-secondary); color:var(--text-primary);" id="inviteLinkInput">
+                            <button onclick="navigator.clipboard.writeText('${url}'); this.textContent='Copiado!'; setTimeout(()=>this.textContent='Copiar',2000)" style="font-size:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:6px; background:var(--bg-primary); color:var(--text-primary); cursor:pointer; white-space:nowrap;">Copiar</button>
+                        </div>
+                    `;
+                }
                 successEl.style.display = 'block';
                 document.getElementById('teamInviteEmail').value = '';
                 loadTeamMembers();

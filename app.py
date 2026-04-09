@@ -17,6 +17,9 @@ import json
 import shutil
 import tempfile
 import zipfile
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from pathlib import Path
 from typing import Optional
 
@@ -166,6 +169,70 @@ def init_db():
 
 
 init_db()
+
+
+# ─── Email Notifications ────────────────────────────────
+
+SMTP_HOST = os.environ.get("SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASS = os.environ.get("SMTP_PASS", "")
+SMTP_FROM = os.environ.get("SMTP_FROM", "") or SMTP_USER
+APP_URL = os.environ.get("APP_URL", "https://web-production-fff15.up.railway.app")
+
+
+def send_invite_email(to_email: str, owner_name: str, invite_token: str) -> bool:
+    """Send team invite email via SMTP. Returns True on success."""
+    if not SMTP_HOST or not SMTP_USER or not SMTP_PASS:
+        logger.warning("[Email] SMTP not configured — skipping email send")
+        return False
+
+    signup_url = f"{APP_URL.rstrip('/')}/?invite={invite_token}"
+
+    subject = f"{owner_name} te convidou para a equipe no Image Tools"
+    html_body = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 2rem;">
+        <h2 style="color: #111827; font-size: 1.3rem;">Convite para Equipe</h2>
+        <p style="color: #374151; font-size: 0.95rem; line-height: 1.6;">
+            <strong>{owner_name}</strong> te convidou para fazer parte da equipe no <strong>Image Tools</strong>.
+        </p>
+        <p style="color: #374151; font-size: 0.95rem; line-height: 1.6;">
+            Clique no botão abaixo para criar sua conta e se juntar à equipe:
+        </p>
+        <div style="text-align: center; margin: 1.5rem 0;">
+            <a href="{signup_url}" style="display: inline-block; background: #6366f1; color: #fff; padding: 0.75rem 2rem; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 0.95rem;">
+                Aceitar Convite
+            </a>
+        </div>
+        <p style="color: #6b7280; font-size: 0.85rem;">
+            Ou acesse diretamente: <a href="{signup_url}" style="color: #6366f1;">{signup_url}</a>
+        </p>
+        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 1.5rem 0;">
+        <p style="color: #9ca3af; font-size: 0.8rem;">
+            Se você não esperava este convite, pode ignorar este email.
+        </p>
+    </div>
+    """
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = SMTP_FROM
+    msg["To"] = to_email
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+            server.ehlo()
+            if SMTP_PORT != 25:
+                server.starttls()
+                server.ehlo()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.sendmail(SMTP_FROM, [to_email], msg.as_string())
+        logger.info(f"[Email] Invite sent to {to_email}")
+        return True
+    except Exception as e:
+        logger.error(f"[Email] Failed to send invite to {to_email}: {e}")
+        return False
 
 
 # ─── API Usage Tracking ─────────────────────────────────
@@ -1191,6 +1258,10 @@ def team_invite():
 
     invite_token = str(uuid.uuid4())[:12]
 
+    # Get owner name for the email
+    owner_info = conn.execute("SELECT nome FROM users WHERE id = ?", (user_id,)).fetchone()
+    owner_name = owner_info["nome"] if owner_info else "Sua equipe"
+
     # Check if user already exists
     existing_user = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
     member_id = existing_user["id"] if existing_user else None
@@ -1208,7 +1279,19 @@ def team_invite():
     conn.commit()
     conn.close()
 
-    return jsonify({"ok": True, "status": status, "invite_token": invite_token})
+    # Send invite email (for pending invites)
+    email_sent = False
+    invite_url = f"{APP_URL.rstrip('/')}/?invite={invite_token}"
+    if status == "pending":
+        email_sent = send_invite_email(email, owner_name, invite_token)
+
+    return jsonify({
+        "ok": True,
+        "status": status,
+        "invite_token": invite_token,
+        "email_sent": email_sent,
+        "invite_url": invite_url if status == "pending" else None,
+    })
 
 
 @app.route("/team/members")
