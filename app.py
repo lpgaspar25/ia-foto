@@ -61,7 +61,7 @@ if os.environ.get("RAILWAY_ENVIRONMENT"):
     if not PERSIST_DIR.exists():
         PERSIST_DIR = Path(tempfile.gettempdir())
     UPLOAD_FOLDER = Path(tempfile.gettempdir()) / "img-uploads"
-    OUTPUT_FOLDER = Path(tempfile.gettempdir()) / "img-output"
+    OUTPUT_FOLDER = PERSIST_DIR / "img-output"
     DB_PATH = PERSIST_DIR / "imagetools.db"
 else:
     UPLOAD_FOLDER = Path(__file__).parent / "uploads"
@@ -104,6 +104,19 @@ def init_db():
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            job_id TEXT NOT NULL UNIQUE,
+            source_type TEXT NOT NULL DEFAULT '',
+            source_label TEXT NOT NULL DEFAULT '',
+            product_count INTEGER NOT NULL DEFAULT 0,
+            image_count INTEGER NOT NULL DEFAULT 0,
+            languages TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'translating',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
     """)
     # Add columns if they don't exist (migration for existing DBs)
     try:
@@ -119,6 +132,25 @@ def init_db():
 
 
 init_db()
+
+
+def save_job_record(user_id: int, job_id: str, source_type: str, source_label: str,
+                    product_count: int, image_count: int, languages: str = "", status: str = "created"):
+    """Save or update a job record in the database."""
+    conn = get_db()
+    existing = conn.execute("SELECT id FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+    if existing:
+        conn.execute(
+            "UPDATE jobs SET languages = ?, status = ? WHERE job_id = ?",
+            (languages, status, job_id)
+        )
+    else:
+        conn.execute(
+            "INSERT INTO jobs (user_id, job_id, source_type, source_label, product_count, image_count, languages, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, job_id, source_type, source_label, product_count, image_count, languages, status)
+        )
+    conn.commit()
+    conn.close()
 
 
 def get_current_user():
@@ -1483,6 +1515,13 @@ def shopify_copiar():
     with open(job_dir / "state.json", "w") as f:
         json.dump(state, f, ensure_ascii=False)
 
+    # Save job record
+    if "user_id" in session:
+        source_label = store_domain
+        if product_handle:
+            source_label = f"{store_domain} / {product_handle}"
+        save_job_record(session["user_id"], job_id, "shopify_copy", source_label, product_count, len(images))
+
     return jsonify({
         "job_id": job_id,
         "product_count": product_count,
@@ -1646,6 +1685,10 @@ def shopify_extrair():
         }
         with open(job_dir / "state.json", "w") as f:
             json.dump(state, f, ensure_ascii=False)
+
+        # Save job record
+        if "user_id" in session:
+            save_job_record(session["user_id"], job_id, "shopify_api", store_url, product_count, len(images))
 
         return jsonify({
             "job_id": job_id,
@@ -2154,6 +2197,10 @@ def csv_analisar():
     with open(job_dir / "state.json", "w") as f:
         json.dump(state, f, ensure_ascii=False)
 
+    # Save job record
+    if "user_id" in session:
+        save_job_record(session["user_id"], job_id, "csv_upload", f"{product_count} produtos", product_count, len(images))
+
     return jsonify({
         "job_id": job_id,
         "product_count": product_count,
@@ -2380,12 +2427,121 @@ def csv_traduzir_stream():
 
             yield f"data: {json.dumps({'type': 'complete', 'lang': lang, 'total_translated': current})}\n\n"
 
+            # Update job record with completed language
+            if "user_id" in session:
+                conn = get_db()
+                job_rec = conn.execute("SELECT languages FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+                if job_rec:
+                    langs_done = job_rec["languages"]
+                    langs_done = f"{langs_done},{lang}" if langs_done else lang
+                    conn.execute("UPDATE jobs SET languages = ?, status = 'translated' WHERE job_id = ?", (langs_done, job_id))
+                    conn.commit()
+                conn.close()
+
         except Exception as e:
             logger.error(f"[CSV] Erro na tradução SSE: {e}")
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.route("/jobs/list")
+@login_required_api
+def jobs_list():
+    """List saved jobs for the current user."""
+    user_id = session["user_id"]
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT job_id, source_type, source_label, product_count, image_count, languages, status, created_at FROM jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT 20",
+        (user_id,)
+    ).fetchall()
+    conn.close()
+
+    jobs = []
+    for r in rows:
+        # Check if job directory still exists
+        job_dir = OUTPUT_FOLDER / r["job_id"]
+        if job_dir.exists():
+            jobs.append({
+                "job_id": r["job_id"],
+                "source_type": r["source_type"],
+                "source_label": r["source_label"],
+                "product_count": r["product_count"],
+                "image_count": r["image_count"],
+                "languages": r["languages"],
+                "status": r["status"],
+                "created_at": r["created_at"],
+            })
+
+    return jsonify({"jobs": jobs})
+
+
+@app.route("/jobs/load/<job_id>")
+@login_required_api
+def jobs_load(job_id):
+    """Load a saved job for resuming."""
+    user_id = session["user_id"]
+    conn = get_db()
+    job_rec = conn.execute(
+        "SELECT * FROM jobs WHERE job_id = ? AND user_id = ?", (job_id, user_id)
+    ).fetchone()
+    conn.close()
+
+    if not job_rec:
+        return jsonify({"erro": "Projeto não encontrado"}), 404
+
+    job_dir = OUTPUT_FOLDER / job_id
+    state_path = job_dir / "state.json"
+    if not state_path.exists():
+        return jsonify({"erro": "Dados do projeto não encontrados"}), 404
+
+    with open(state_path) as f:
+        state = json.load(f)
+
+    # Get translated languages and their preview products
+    languages = [l.strip() for l in job_rec["languages"].split(",") if l.strip()]
+
+    # Get image results from state
+    images = state.get("images", [])
+    result_images = []
+    for i, img in enumerate(images):
+        # Try to find thumbnail
+        thumb = ""
+        original_path = list(job_dir.glob(f"original_{i}_*"))
+        if original_path:
+            try:
+                thumb_img = Image.open(original_path[0])
+                thumb_img.thumbnail((120, 120))
+                if thumb_img.mode in ("RGBA", "P"):
+                    thumb_img = thumb_img.convert("RGB")
+                buf = io.BytesIO()
+                thumb_img.save(buf, format="JPEG", quality=70)
+                thumb = f"data:image/jpeg;base64,{base64.standard_b64encode(buf.getvalue()).decode('utf-8')}"
+            except Exception:
+                pass
+
+        result_images.append({
+            "index": i,
+            "url": img.get("url", ""),
+            "source": img.get("source", ""),
+            "handle": img.get("handle", ""),
+            "filename": img.get("filename", ""),
+            "has_text": img.get("has_text", False),
+            "description": img.get("description", ""),
+            "thumbnail": thumb,
+        })
+
+    return jsonify({
+        "job_id": job_id,
+        "source_type": job_rec["source_type"],
+        "source_label": job_rec["source_label"],
+        "product_count": job_rec["product_count"],
+        "image_count": job_rec["image_count"],
+        "languages": languages,
+        "status": job_rec["status"],
+        "images": result_images,
+    })
 
 
 @app.route("/csv/download/<job_id>")

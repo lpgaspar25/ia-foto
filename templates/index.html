@@ -869,6 +869,40 @@
             border-color: var(--accent3);
             background: var(--accent3-subtle);
         }
+        .saved-job-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.7rem 0.9rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .saved-job-item:hover {
+            border-color: var(--accent3);
+            background: var(--accent3-subtle);
+        }
+        .saved-job-meta {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.2rem;
+        }
+        .saved-job-badge {
+            font-size: 0.7rem;
+            padding: 0.15rem 0.5rem;
+            border-radius: 99px;
+            font-weight: 600;
+        }
+        .saved-job-badge.translated {
+            background: rgba(16,185,129,0.15);
+            color: #10b981;
+        }
+        .saved-job-badge.created {
+            background: rgba(59,130,246,0.15);
+            color: #3b82f6;
+        }
         .saved-store-name {
             font-weight: 600;
             font-size: 0.85rem;
@@ -1440,6 +1474,17 @@
 
         <!-- ═══════ ABA 3: CSV SHOPIFY ═══════ -->
         <div class="tab-content" id="tab-csv">
+
+            <!-- Projetos Salvos -->
+            <div id="savedJobsArea" style="display:none; margin-bottom:1rem;">
+                <div class="card">
+                    <h2>Projetos Salvos</h2>
+                    <p style="color:var(--text-secondary); font-size:0.82rem; margin-bottom:0.8rem;">
+                        Retome um projeto anterior:
+                    </p>
+                    <div id="savedJobsList" style="display:flex; flex-direction:column; gap:0.5rem;"></div>
+                </div>
+            </div>
 
             <!-- Fase 1: Upload CSV ou Conectar Loja -->
             <div class="csv-phase visible" id="csvPhase1">
@@ -2033,10 +2078,147 @@
             }
         }
 
+        // ─── Saved Jobs ───
+        async function loadSavedJobs() {
+            if (!currentUser) {
+                document.getElementById('savedJobsArea').style.display = 'none';
+                return;
+            }
+            try {
+                const resp = await fetch('/jobs/list');
+                const data = await resp.json();
+                const jobs = data.jobs || [];
+                const area = document.getElementById('savedJobsArea');
+                const list = document.getElementById('savedJobsList');
+
+                if (jobs.length === 0) {
+                    area.style.display = 'none';
+                    return;
+                }
+
+                area.style.display = '';
+                list.innerHTML = '';
+                jobs.forEach(job => {
+                    const langs = job.languages ? job.languages.split(',').map(l => l.trim().toUpperCase()).join(', ') : '';
+                    const date = new Date(job.created_at).toLocaleDateString('pt-BR');
+                    const badgeClass = job.status === 'translated' ? 'translated' : 'created';
+                    const badgeText = job.status === 'translated' ? 'Traduzido' : 'Em progresso';
+
+                    const item = document.createElement('div');
+                    item.className = 'saved-job-item';
+                    item.onclick = () => loadSavedJob(job.job_id);
+                    item.innerHTML = `
+                        <div style="flex:1;">
+                            <div style="color:var(--text-primary); font-weight:500; font-size:0.9rem;">${job.source_label}</div>
+                            <div class="saved-job-meta">
+                                ${job.product_count} produto(s) &middot; ${job.image_count} imagem(ns)
+                                ${langs ? ' &middot; ' + langs : ''} &middot; ${date}
+                            </div>
+                        </div>
+                        <span class="saved-job-badge ${badgeClass}">${badgeText}</span>
+                    `;
+                    list.appendChild(item);
+                });
+            } catch (err) {
+                console.error('Erro ao carregar projetos:', err);
+            }
+        }
+
+        async function loadSavedJob(jobId) {
+            try {
+                const resp = await fetch(`/jobs/load/${jobId}`);
+                const data = await resp.json();
+                if (data.erro) {
+                    alert(data.erro);
+                    return;
+                }
+
+                csvJobId = data.job_id;
+                csvImages = data.images;
+                shopifyConnected = data.source_type !== 'csv_upload';
+
+                // If already translated, go straight to download/publish phase
+                if (data.status === 'translated' && data.languages.length > 0) {
+                    csvTranslatedLangs = data.languages;
+
+                    document.getElementById('csvPhase1').classList.remove('visible');
+                    document.getElementById('csvPhase2').classList.remove('visible');
+                    document.getElementById('csvPhase3').classList.add('visible');
+
+                    document.getElementById('csvLangLabel').textContent = 'Projeto carregado';
+                    document.getElementById('csvProgressLabel').textContent = 'Tradução concluída!';
+                    document.getElementById('csvProgressFill').style.width = '100%';
+                    document.getElementById('csvProgressPercent').textContent = '100%';
+
+                    document.getElementById('csvDownloadBtn').href = `/csv/download/${csvJobId}`;
+                    document.getElementById('csvDownloadArea').style.display = 'block';
+
+                    // Show publish area
+                    if (shopifyConnected && csvTranslatedLangs.length > 0) {
+                        const publishArea = document.getElementById('shopifyPublishArea');
+                        publishArea.style.display = 'block';
+                        populatePublishDestDropdown();
+                        const langSelector = document.getElementById('shopifyLangSelector');
+                        langSelector.innerHTML = '';
+                        csvTranslatedLangs.forEach(lang => {
+                            const flag = FLAGS[lang] || '';
+                            const name = LANG_NAMES[lang] || lang;
+                            langSelector.innerHTML += `
+                                <label class="idioma-item publish-lang-btn" data-lang="${lang}" onclick="selectPublishLang('${lang}')">
+                                    <div class="idioma-check">✓</div>
+                                    <span class="idioma-flag">${flag}</span>
+                                    <span class="idioma-name">${name}</span>
+                                </label>
+                            `;
+                        });
+                    }
+                } else {
+                    // Go to phase 2 (image review)
+                    const textCount = data.images.filter(i => i.has_text).length;
+                    document.getElementById('csvSummary').innerHTML = `
+                        <div class="csv-summary-item"><div class="value">${data.product_count}</div><div class="label">Produtos</div></div>
+                        <div class="csv-summary-item"><div class="value">${data.image_count}</div><div class="label">Imagens</div></div>
+                        <div class="csv-summary-item"><div class="value">${textCount}</div><div class="label">Com texto</div></div>
+                    `;
+
+                    const tbody = document.getElementById('csvImageTableBody');
+                    tbody.innerHTML = '';
+                    data.images.forEach(img => {
+                        const badgeClass = img.source === 'gallery' ? 'badge-gallery' : img.source === 'variant' ? 'badge-variant' : 'badge-description';
+                        const badgeLabel = img.source === 'gallery' ? 'Galeria' : img.source === 'variant' ? 'Variante' : 'Descrição';
+                        const textClass = img.has_text ? 'has-text' : 'no-text';
+                        const textLabel = img.has_text ? '✅ Tem texto' : '⚪ Sem texto';
+                        tbody.innerHTML += `
+                            <tr>
+                                <td><input type="checkbox" class="csv-checkbox" data-index="${img.index}" data-has-text="${img.has_text}" ${img.has_text ? 'checked' : ''} onchange="updateCsvTraduzirBtn()"></td>
+                                <td>${img.thumbnail ? `<img class="img-review-thumb" src="${img.thumbnail}">` : '<div style="width:60px;height:60px;background:#222;border-radius:6px;"></div>'}</td>
+                                <td><span class="badge ${badgeClass}">${badgeLabel}</span></td>
+                                <td style="color:var(--text-secondary);">${img.handle}</td>
+                                <td><span class="text-indicator ${textClass}">${textLabel}</span></td>
+                                <td style="color:var(--text-muted); font-size:0.78rem; max-width:200px;">${img.description || ''}</td>
+                            </tr>
+                        `;
+                    });
+
+                    document.getElementById('csvPhase1').classList.remove('visible');
+                    document.getElementById('csvPhase2').classList.add('visible');
+                    updateCsvTraduzirBtn();
+                }
+
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            } catch (err) {
+                alert('Erro ao carregar projeto: ' + err.message);
+            }
+        }
+
         // Init: check login state and load stores
         document.addEventListener('DOMContentLoaded', () => {
             updateShopifyLoginState();
-            if (currentUser) loadSavedStores();
+            if (currentUser) {
+                loadSavedStores();
+                loadSavedJobs();
+            }
 
             // Check if returning from OAuth callback
             const params = new URLSearchParams(window.location.search);
