@@ -1242,6 +1242,36 @@
         </div>
     </div>
 
+    <!-- Team Modal -->
+    <div class="auth-overlay" id="teamOverlay" onclick="if(event.target===this)closeTeamModal()">
+        <div class="auth-modal" style="max-width:520px;">
+            <button class="auth-close" onclick="closeTeamModal()">&times;</button>
+            <h2>Minha Equipe</h2>
+            <div class="auth-subtitle">Gerencie membros da sua equipe</div>
+            <div id="teamMembersList" style="margin:1rem 0;"></div>
+            <div style="border-top:1px solid var(--border); padding-top:1rem; margin-top:1rem;">
+                <h3 style="font-size:0.95rem; color:var(--text-primary); margin-bottom:0.8rem;">Convidar Membro</h3>
+                <div id="teamError" style="display:none; color:#ef4444; font-size:0.85rem; margin-bottom:0.8rem; padding:0.5rem 0.8rem; background:rgba(239,68,68,0.1); border-radius:6px;"></div>
+                <div id="teamSuccess" style="display:none; color:#10b981; font-size:0.85rem; margin-bottom:0.8rem; padding:0.5rem 0.8rem; background:rgba(16,185,129,0.1); border-radius:6px;"></div>
+                <div class="auth-field">
+                    <label>Email do membro</label>
+                    <input type="email" id="teamInviteEmail" placeholder="funcionario@email.com">
+                </div>
+                <button class="auth-btn" onclick="inviteTeamMember()">Convidar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Usage Modal -->
+    <div class="auth-overlay" id="usageOverlay" onclick="if(event.target===this)closeUsageModal()">
+        <div class="auth-modal" style="max-width:620px;">
+            <button class="auth-close" onclick="closeUsageModal()">&times;</button>
+            <h2>Uso da API</h2>
+            <div class="auth-subtitle">Consumo de tokens e imagens</div>
+            <div id="usageDashboard" style="margin:1rem 0;"></div>
+        </div>
+    </div>
+
     <div class="container">
 
         <!-- User Bar -->
@@ -1251,6 +1281,8 @@
                 <span class="user-bar-name">{{ user.nome }}</span>
             </div>
             <button class="user-bar-btn" onclick="openStoresModal()">Minhas Lojas</button>
+            <button class="user-bar-btn" onclick="openTeamModal()">Equipe</button>
+            <button class="user-bar-btn" onclick="openUsageModal()">Uso API</button>
             <button class="user-bar-btn" onclick="doLogout()">Sair</button>
             {% else %}
             <button class="user-bar-btn primary" onclick="openAuthModal('login')">Entrar</button>
@@ -1928,6 +1960,8 @@
                         <span class="user-bar-name">${currentUser.nome}</span>
                     </div>
                     <button class="user-bar-btn" onclick="openStoresModal()">Minhas Lojas</button>
+                    <button class="user-bar-btn" onclick="openTeamModal()">Equipe</button>
+                    <button class="user-bar-btn" onclick="openUsageModal()">Uso API</button>
                     <button class="user-bar-btn" onclick="doLogout()">Sair</button>
                 `;
             } else {
@@ -2118,6 +2152,145 @@
                 checkCopiarReady();
             } catch (err) {
                 console.error('Erro ao remover loja:', err);
+            }
+        }
+
+        // ─── Team Management ───
+        function openTeamModal() {
+            loadTeamMembers();
+            document.getElementById('teamOverlay').classList.add('visible');
+        }
+        function closeTeamModal() {
+            document.getElementById('teamOverlay').classList.remove('visible');
+        }
+
+        async function loadTeamMembers() {
+            const list = document.getElementById('teamMembersList');
+            try {
+                const resp = await fetch('/team/members');
+                const data = await resp.json();
+                if (!data.members || data.members.length === 0) {
+                    list.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:1rem; font-size:0.9rem;">Nenhum membro na equipe.</div>';
+                    return;
+                }
+                list.innerHTML = '';
+                data.members.forEach(m => {
+                    const item = document.createElement('div');
+                    item.className = 'saved-store-item';
+                    const statusBadge = m.status === 'active'
+                        ? '<span style="color:#10b981; font-size:0.75rem;">Ativo</span>'
+                        : '<span style="color:#f59e0b; font-size:0.75rem;">Pendente</span>';
+                    item.innerHTML = `
+                        <div style="flex:1;">
+                            <div class="saved-store-name">${m.member_name || m.email}</div>
+                            <div class="saved-store-url">${m.email} &middot; ${statusBadge}</div>
+                        </div>
+                        <button class="saved-store-remove" onclick="removeTeamMember(${m.id})" title="Remover">&#10005;</button>
+                    `;
+                    list.appendChild(item);
+                });
+            } catch (err) {
+                list.innerHTML = '<div style="color:#ef4444; padding:1rem;">Erro ao carregar equipe.</div>';
+            }
+        }
+
+        async function inviteTeamMember() {
+            const email = document.getElementById('teamInviteEmail').value.trim();
+            const errorEl = document.getElementById('teamError');
+            const successEl = document.getElementById('teamSuccess');
+            errorEl.style.display = 'none';
+            successEl.style.display = 'none';
+            if (!email) { errorEl.textContent = 'Informe o email.'; errorEl.style.display = 'block'; return; }
+            try {
+                const resp = await fetch('/team/invite', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ email }),
+                });
+                const data = await resp.json();
+                if (data.erro) { errorEl.textContent = data.erro; errorEl.style.display = 'block'; return; }
+                successEl.textContent = data.status === 'active'
+                    ? `${email} adicionado com sucesso!`
+                    : `Convite enviado para ${email}. O membro precisa criar conta com este email.`;
+                successEl.style.display = 'block';
+                document.getElementById('teamInviteEmail').value = '';
+                loadTeamMembers();
+            } catch (err) {
+                errorEl.textContent = 'Erro: ' + err.message; errorEl.style.display = 'block';
+            }
+        }
+
+        async function removeTeamMember(memberId) {
+            if (!confirm('Remover este membro da equipe?')) return;
+            try {
+                await fetch(`/team/remove/${memberId}`, { method: 'DELETE' });
+                loadTeamMembers();
+            } catch (err) { console.error(err); }
+        }
+
+        // ─── Usage Dashboard ───
+        function openUsageModal() {
+            loadUsageDashboard();
+            document.getElementById('usageOverlay').classList.add('visible');
+        }
+        function closeUsageModal() {
+            document.getElementById('usageOverlay').classList.remove('visible');
+        }
+
+        function fmtCost(v) { return '$' + (v || 0).toFixed(4); }
+        function fmtNum(v) { return (v || 0).toLocaleString(); }
+
+        async function loadUsageDashboard() {
+            const dash = document.getElementById('usageDashboard');
+            dash.innerHTML = '<div style="text-align:center; padding:2rem; color:var(--text-muted);">Carregando...</div>';
+            try {
+                const resp = await fetch('/usage/summary');
+                const data = await resp.json();
+
+                function renderPeriod(label, d) {
+                    const text = d.text_translation || {};
+                    const img = d.image_translation || {};
+                    const totalCost = (text.cost || 0) + (img.cost || 0);
+                    const totalCalls = (text.calls || 0) + (img.calls || 0);
+                    return `
+                        <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:8px; padding:1rem; margin-bottom:0.8rem;">
+                            <div style="font-weight:600; font-size:0.9rem; margin-bottom:0.5rem; color:var(--text-primary);">${label}</div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.5rem; font-size:0.8rem;">
+                                <div><div style="color:var(--text-muted);">Chamadas</div><div style="font-weight:600;">${fmtNum(totalCalls)}</div></div>
+                                <div><div style="color:var(--text-muted);">Imagens</div><div style="font-weight:600;">${fmtNum(img.images)}</div></div>
+                                <div><div style="color:var(--text-muted);">Custo Est.</div><div style="font-weight:600;">${fmtCost(totalCost)}</div></div>
+                            </div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; font-size:0.75rem; margin-top:0.5rem; color:var(--text-secondary);">
+                                <div>Texto: ${fmtNum(text.tokens_input || 0)} tok in / ${fmtNum(text.tokens_output || 0)} tok out</div>
+                                <div>Custo texto: ${fmtCost(text.cost)} | img: ${fmtCost(img.cost)}</div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                let html = renderPeriod('Hoje', data.today) + renderPeriod('Este M&#234;s', data.month) + renderPeriod('Total', data.total);
+
+                if (data.per_user && data.per_user.length > 0) {
+                    html += `<div style="font-weight:600; font-size:0.9rem; margin:1rem 0 0.5rem; color:var(--text-primary);">Por Membro</div>`;
+                    const grouped = {};
+                    data.per_user.forEach(r => {
+                        const key = r.email || r.nome;
+                        if (!grouped[key]) grouped[key] = { nome: r.nome, email: r.email, cost: 0, calls: 0, imgs: 0 };
+                        grouped[key].cost += (r.cost || 0);
+                        grouped[key].calls += (r.calls || 0);
+                        grouped[key].imgs += (r.imgs || 0);
+                    });
+                    Object.values(grouped).forEach(u => {
+                        html += `<div style="background:var(--bg-input); border-radius:6px; padding:0.6rem 0.8rem; margin-bottom:0.4rem; font-size:0.8rem; display:flex; justify-content:space-between;">
+                            <span>${u.nome || u.email}</span>
+                            <span>${fmtNum(u.calls)} chamadas &middot; ${fmtNum(u.imgs)} imgs &middot; ${fmtCost(u.cost)}</span>
+                        </div>`;
+                    });
+                }
+
+                dash.innerHTML = html;
+            } catch (err) {
+                dash.innerHTML = '<div style="color:#ef4444; padding:1rem;">Erro ao carregar dados.</div>';
             }
         }
 

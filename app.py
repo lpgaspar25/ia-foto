@@ -122,21 +122,95 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS team_members (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id INTEGER NOT NULL,
+            member_id INTEGER,
+            email TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'agent',
+            status TEXT NOT NULL DEFAULT 'pending',
+            invite_token TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (member_id) REFERENCES users(id) ON DELETE SET NULL
+        );
+        CREATE TABLE IF NOT EXISTS api_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            owner_id INTEGER NOT NULL,
+            call_type TEXT NOT NULL,
+            model TEXT NOT NULL DEFAULT '',
+            tokens_input INTEGER NOT NULL DEFAULT 0,
+            tokens_output INTEGER NOT NULL DEFAULT 0,
+            images_count INTEGER NOT NULL DEFAULT 0,
+            estimated_cost REAL NOT NULL DEFAULT 0.0,
+            job_id TEXT NOT NULL DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
+        );
     """)
     # Add columns if they don't exist (migration for existing DBs)
-    try:
-        conn.execute("ALTER TABLE shopify_stores ADD COLUMN client_id TEXT NOT NULL DEFAULT ''")
-    except Exception:
-        pass
-    try:
-        conn.execute("ALTER TABLE shopify_stores ADD COLUMN client_secret TEXT NOT NULL DEFAULT ''")
-    except Exception:
-        pass
+    for col_sql in [
+        "ALTER TABLE shopify_stores ADD COLUMN client_id TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE shopify_stores ADD COLUMN client_secret TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN owner_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'owner'",
+    ]:
+        try:
+            conn.execute(col_sql)
+        except Exception:
+            pass
     conn.commit()
     conn.close()
 
 
 init_db()
+
+
+# ─── API Usage Tracking ─────────────────────────────────
+
+# Cost estimates per model (USD)
+API_COSTS = {
+    "gpt-4o": {"input": 2.50 / 1_000_000, "output": 10.00 / 1_000_000},
+    "gpt-image-1": {"per_image": 0.02},
+    "gemini-3-pro-image": {"per_image": 0.03},
+    "gemini-3.1-flash-image-preview": {"per_image": 0.015},
+    "gemini-2.5-flash-image": {"per_image": 0.01},
+    "gemini-2.0-flash-exp-image-generation": {"per_image": 0.01},
+}
+
+
+def get_owner_id(user_id: int) -> int:
+    """Get the team owner ID for a user (self if owner, or their owner_id)."""
+    conn = get_db()
+    user = conn.execute("SELECT id, owner_id FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    if user and user["owner_id"]:
+        return user["owner_id"]
+    return user_id
+
+
+def track_api_usage(user_id: int, call_type: str, model: str = "",
+                    tokens_input: int = 0, tokens_output: int = 0,
+                    images_count: int = 0, job_id: str = ""):
+    """Record an API call for usage tracking."""
+    owner_id = get_owner_id(user_id)
+    cost = 0.0
+    model_costs = API_COSTS.get(model, {})
+    if tokens_input or tokens_output:
+        cost = tokens_input * model_costs.get("input", 0) + tokens_output * model_costs.get("output", 0)
+    if images_count:
+        cost += images_count * model_costs.get("per_image", 0.02)
+
+    conn = get_db()
+    conn.execute(
+        """INSERT INTO api_usage (user_id, owner_id, call_type, model, tokens_input, tokens_output,
+           images_count, estimated_cost, job_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, owner_id, call_type, model, tokens_input, tokens_output, images_count, cost, job_id)
+    )
+    conn.commit()
+    conn.close()
 
 
 def save_job_record(user_id: int, job_id: str, source_type: str, source_label: str,
@@ -578,6 +652,15 @@ tags: {tags}{options_input}"""
             messages=[{"role": "user", "content": prompt}],
             max_tokens=4000,
         )
+        # Track usage
+        usage = getattr(response, "usage", None)
+        if usage and "user_id" in session:
+            track_api_usage(
+                session["user_id"], "text_translation", "gpt-4o",
+                tokens_input=getattr(usage, "prompt_tokens", 0),
+                tokens_output=getattr(usage, "completion_tokens", 0),
+            )
+
         text = response.choices[0].message.content.strip()
         text = re.sub(r"^```json?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
@@ -685,9 +768,18 @@ def auth_register():
             "INSERT INTO users (nome, email, password_hash) VALUES (?, ?, ?)",
             (nome, email, password_hash)
         )
-        conn.commit()
         user_id = cursor.lastrowid
 
+        # Check if this email was invited to a team
+        invite = conn.execute(
+            "SELECT id, owner_id FROM team_members WHERE email = ? AND status = 'pending'",
+            (email,)
+        ).fetchone()
+        if invite:
+            conn.execute("UPDATE users SET owner_id = ?, role = 'agent' WHERE id = ?", (invite["owner_id"], user_id))
+            conn.execute("UPDATE team_members SET member_id = ?, status = 'active' WHERE id = ?", (user_id, invite["id"]))
+
+        conn.commit()
         session["user_id"] = user_id
         conn.close()
 
@@ -734,15 +826,24 @@ def auth_me():
         return jsonify({"logged_in": False})
 
     conn = get_db()
+    # Agents see their owner's stores too
+    owner_id = get_owner_id(user["id"])
     stores = conn.execute(
         "SELECT id, store_name, store_url FROM shopify_stores WHERE user_id = ? ORDER BY updated_at DESC",
-        (user["id"],)
+        (owner_id,)
     ).fetchall()
+
+    # Get user role
+    user_row = conn.execute("SELECT role, owner_id FROM users WHERE id = ?", (user["id"],)).fetchone()
     conn.close()
+
+    user_data = dict(user)
+    user_data["role"] = user_row["role"] if user_row else "owner"
+    user_data["is_agent"] = bool(user_row and user_row["owner_id"])
 
     return jsonify({
         "logged_in": True,
-        "user": user,
+        "user": user_data,
         "stores": [dict(s) for s in stores],
     })
 
@@ -1057,6 +1158,180 @@ def auth_delete_shopify_store(store_id):
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
+
+
+# ─── Team Management ─────────────────────────────────────
+
+@app.route("/team/invite", methods=["POST"])
+@login_required_api
+def team_invite():
+    """Invite a team member by email."""
+    user_id = session["user_id"]
+    data = request.get_json()
+    email = (data.get("email") or "").strip().lower()
+
+    if not email:
+        return jsonify({"erro": "Email é obrigatório"}), 400
+
+    # Only owners can invite
+    conn = get_db()
+    user = conn.execute("SELECT id, owner_id FROM users WHERE id = ?", (user_id,)).fetchone()
+    if user and user["owner_id"]:
+        conn.close()
+        return jsonify({"erro": "Apenas o dono da conta pode convidar membros"}), 403
+
+    # Check if already invited
+    existing = conn.execute(
+        "SELECT id, status FROM team_members WHERE owner_id = ? AND email = ?",
+        (user_id, email)
+    ).fetchone()
+    if existing:
+        conn.close()
+        return jsonify({"erro": "Este email já foi convidado"}), 400
+
+    invite_token = str(uuid.uuid4())[:12]
+
+    # Check if user already exists
+    existing_user = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+    member_id = existing_user["id"] if existing_user else None
+    status = "pending"
+
+    if member_id:
+        # User exists — link directly
+        conn.execute("UPDATE users SET owner_id = ?, role = 'agent' WHERE id = ?", (user_id, member_id))
+        status = "active"
+
+    conn.execute(
+        "INSERT INTO team_members (owner_id, member_id, email, role, status, invite_token) VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, member_id, email, "agent", status, invite_token)
+    )
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True, "status": status, "invite_token": invite_token})
+
+
+@app.route("/team/members")
+@login_required_api
+def team_list():
+    """List team members for the current owner."""
+    user_id = session["user_id"]
+    owner_id = get_owner_id(user_id)
+
+    conn = get_db()
+    members = conn.execute("""
+        SELECT tm.id, tm.email, tm.role, tm.status, tm.created_at,
+               u.nome as member_name
+        FROM team_members tm
+        LEFT JOIN users u ON u.id = tm.member_id
+        WHERE tm.owner_id = ?
+        ORDER BY tm.created_at DESC
+    """, (owner_id,)).fetchall()
+
+    # Also get owner info
+    owner = conn.execute("SELECT id, nome, email FROM users WHERE id = ?", (owner_id,)).fetchone()
+    conn.close()
+
+    return jsonify({
+        "owner": dict(owner) if owner else {},
+        "members": [dict(m) for m in members],
+    })
+
+
+@app.route("/team/remove/<int:member_id>", methods=["DELETE"])
+@login_required_api
+def team_remove(member_id):
+    """Remove a team member."""
+    user_id = session["user_id"]
+    conn = get_db()
+
+    # Only owner can remove
+    user = conn.execute("SELECT id, owner_id FROM users WHERE id = ?", (user_id,)).fetchone()
+    if user and user["owner_id"]:
+        conn.close()
+        return jsonify({"erro": "Apenas o dono da conta pode remover membros"}), 403
+
+    tm = conn.execute(
+        "SELECT member_id FROM team_members WHERE id = ? AND owner_id = ?",
+        (member_id, user_id)
+    ).fetchone()
+
+    if tm and tm["member_id"]:
+        conn.execute("UPDATE users SET owner_id = NULL, role = 'owner' WHERE id = ?", (tm["member_id"],))
+
+    conn.execute("DELETE FROM team_members WHERE id = ? AND owner_id = ?", (member_id, user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+# ─── API Usage Dashboard ─────────────────────────────────
+
+@app.route("/usage/summary")
+@login_required_api
+def usage_summary():
+    """Get API usage summary for the current account."""
+    user_id = session["user_id"]
+    owner_id = get_owner_id(user_id)
+
+    conn = get_db()
+
+    # Today
+    today = conn.execute("""
+        SELECT call_type, SUM(tokens_input) as ti, SUM(tokens_output) as to_,
+               SUM(images_count) as imgs, SUM(estimated_cost) as cost, COUNT(*) as calls
+        FROM api_usage WHERE owner_id = ? AND date(created_at) = date('now')
+        GROUP BY call_type
+    """, (owner_id,)).fetchall()
+
+    # This month
+    month = conn.execute("""
+        SELECT call_type, SUM(tokens_input) as ti, SUM(tokens_output) as to_,
+               SUM(images_count) as imgs, SUM(estimated_cost) as cost, COUNT(*) as calls
+        FROM api_usage WHERE owner_id = ? AND created_at >= date('now', 'start of month')
+        GROUP BY call_type
+    """, (owner_id,)).fetchall()
+
+    # All time
+    total = conn.execute("""
+        SELECT call_type, SUM(tokens_input) as ti, SUM(tokens_output) as to_,
+               SUM(images_count) as imgs, SUM(estimated_cost) as cost, COUNT(*) as calls
+        FROM api_usage WHERE owner_id = ?
+        GROUP BY call_type
+    """, (owner_id,)).fetchall()
+
+    # Per user breakdown
+    per_user = conn.execute("""
+        SELECT u.nome, u.email, au.call_type,
+               SUM(au.tokens_input) as ti, SUM(au.tokens_output) as to_,
+               SUM(au.images_count) as imgs, SUM(au.estimated_cost) as cost, COUNT(*) as calls
+        FROM api_usage au JOIN users u ON u.id = au.user_id
+        WHERE au.owner_id = ?
+        GROUP BY au.user_id, au.call_type
+        ORDER BY cost DESC
+    """, (owner_id,)).fetchall()
+
+    conn.close()
+
+    def rows_to_dict(rows):
+        result = {"text_translation": {}, "image_translation": {}, "text_detection": {}}
+        for r in rows:
+            ct = r["call_type"]
+            result[ct] = {
+                "tokens_input": r["ti"] or 0,
+                "tokens_output": r["to_"] or 0,
+                "images": r["imgs"] or 0,
+                "cost": round(r["cost"] or 0, 4),
+                "calls": r["calls"] or 0,
+            }
+        return result
+
+    return jsonify({
+        "today": rows_to_dict(today),
+        "month": rows_to_dict(month),
+        "total": rows_to_dict(total),
+        "per_user": [dict(r) for r in per_user],
+    })
 
 
 @app.route("/traduzir", methods=["POST"])
@@ -2617,6 +2892,13 @@ def csv_traduzir_stream():
                         if result["ok"]:
                             mapping[result["url"]] = f"{lang}/{result['nome_saida']}"
                             preview = f"data:image/jpeg;base64,{result['preview_b64']}" if result["preview_b64"] else ""
+                            # Track image translation usage
+                            if "user_id" in session:
+                                track_api_usage(
+                                    session["user_id"], "image_translation",
+                                    model=result.get("model_used", "gemini"),
+                                    images_count=1, job_id=job_id,
+                                )
                             yield f"data: {json.dumps({'type': 'image_done', 'current': current, 'total': total, 'image': result['img_filename'], 'language': nome_idioma, 'lang_code': lang, 'output_file': result['nome_saida'], 'preview': preview})}\n\n"
                         else:
                             fname = result["img_filename"]
