@@ -694,6 +694,18 @@ COMMON MISTAKES TO AVOID (Portuguese → Bad English → Good English):
 - "Código de Defesa do Consumidor" → NOT "Consumer Protection Code" → ADAPT to "{idioma_nome} market equivalent" (e.g. "our satisfaction guarantee")
 - "nos emocionamos" → NOT "we get emotional" → USE "we're deeply moved" / "it touches our hearts"
 
+COMMON MISTAKES TO AVOID (Portuguese → Bad French → Good French):
+- "eternizar" → NOT "immortaliser" → USE "graver à jamais" / "chérir pour toujours" / "garder précieusement"
+- "emocionar" → NOT "émotionner" → USE "toucher le cœur" / "émouvoir"
+- "presente para emocionar" → NOT "cadeau émouvant" → USE "un cadeau qui touche le cœur"
+- "antecipar" → NOT "anticiper" → USE "préparer" / "prévoir"
+- "colocar um sorriso no rosto" → NOT "mettre un sourire sur le visage" → USE "illuminer votre visage" / "vous faire sourire"
+- "amores" (família) → NOT "amours" → USE "êtres chers" / "proches"
+- "não descolore / não perde a cor" → NOT "ne décolore pas / ne perd pas sa couleur" → USE "ne s'oxyde pas" / "ne ternit pas"
+- "melhor escolha para dar de presente" → NOT "meilleur choix pour offrir un cadeau" → USE "meilleur choix pour faire plaisir"
+- "voltamos às nossas raízes" (emocional) → NOT "revenir à nos racines" → USE "replonger dans nos plus beaux souvenirs"
+- "Código de Defesa do Consumidor" → NOT "Code de Défense du Consommateur" → USE "notre garantie satisfaction" / "conformément à notre garantie"
+
 TECHNICAL RULES:
 - Keep ALL HTML tags and attributes exactly as they are (only translate the visible text between tags)
 - Keep brand names unchanged (unless brand replacement is specified above)
