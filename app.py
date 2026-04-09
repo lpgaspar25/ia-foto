@@ -1904,8 +1904,8 @@ def shopify_copiar():
     # Load destination store credentials
     dest_store_url = ""
     dest_token = ""
+    owner_id = get_owner_id(session["user_id"])
     if dest_store_id:
-        owner_id = get_owner_id(session["user_id"])
         conn = get_db()
         store = conn.execute(
             "SELECT store_url, access_token FROM shopify_stores WHERE id = ? AND user_id = ?",
@@ -1915,6 +1915,18 @@ def shopify_copiar():
         if store:
             dest_store_url = store["store_url"]
             dest_token = store["access_token"]
+
+    # Fallback: if no dest store selected, try first saved store
+    if not dest_store_url or not dest_token:
+        conn = get_db()
+        fallback = conn.execute(
+            "SELECT store_url, access_token FROM shopify_stores WHERE user_id = ? AND access_token IS NOT NULL AND access_token != '' ORDER BY updated_at DESC LIMIT 1",
+            (owner_id,)
+        ).fetchone()
+        conn.close()
+        if fallback:
+            dest_store_url = fallback["store_url"]
+            dest_token = fallback["access_token"]
 
     # Fetch products from public endpoint
     try:
@@ -2411,8 +2423,8 @@ def shopify_publicar():
     shopify_products = state.get("shopify_products", [])
 
     # Override with destination store from user's saved stores
+    owner_id = get_owner_id(session["user_id"])
     if dest_store_id:
-        owner_id = get_owner_id(session["user_id"])
         conn = get_db()
         dest = conn.execute(
             "SELECT store_url, access_token FROM shopify_stores WHERE id = ? AND user_id = ?",
@@ -2422,6 +2434,19 @@ def shopify_publicar():
         if dest:
             store_url = dest["store_url"]
             token = dest["access_token"]
+
+    # Fallback: if no credentials yet, try first saved store for this owner
+    if not store_url or not token:
+        conn = get_db()
+        fallback = conn.execute(
+            "SELECT store_url, access_token FROM shopify_stores WHERE user_id = ? AND access_token IS NOT NULL AND access_token != '' ORDER BY updated_at DESC LIMIT 1",
+            (owner_id,)
+        ).fetchone()
+        conn.close()
+        if fallback:
+            store_url = fallback["store_url"]
+            token = fallback["access_token"]
+            logger.info(f"[Publish] Fallback to store {store_url} for owner {owner_id}")
 
     if not store_url or not token:
         return jsonify({"erro": "Selecione uma loja destino para publicar."}), 400
