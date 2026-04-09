@@ -52,7 +52,12 @@ except ImportError:
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB max upload
+app.config["PREFERRED_URL_SCHEME"] = "https"
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "imagetools-default-secret-key-2024-prod")
+
+# Fix for running behind reverse proxy (Railway) — ensures request.host_url uses https
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 # Cloud: usar volume persistente /data se disponível, senão /tmp
 if os.environ.get("RAILWAY_ENVIRONMENT"):
@@ -816,6 +821,7 @@ def shopify_oauth_start():
 
     # Build the callback URL
     callback_url = request.host_url.rstrip("/") + "/shopify/oauth/callback"
+    callback_url = callback_url.replace("http://", "https://")
 
     # Build Shopify OAuth authorization URL
     auth_url = (
@@ -960,6 +966,7 @@ def auth_reconnect_shopify_store(store_id):
     }
 
     callback_url = request.host_url.rstrip("/") + "/shopify/oauth/callback"
+    callback_url = callback_url.replace("http://", "https://")
     auth_url = (
         f"https://{store_url}/admin/oauth/authorize"
         f"?client_id={client_id}"
