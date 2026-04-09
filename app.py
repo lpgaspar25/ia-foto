@@ -522,11 +522,19 @@ def detect_text_in_image(client: OpenAI, img_bytes: bytes, mime_type: str = "ima
 
 def traduzir_texto_produto(client: OpenAI, title: str, body_html: str,
                             seo_title: str, seo_desc: str, tags: str,
-                            idioma_nome: str, marca_de: str = "", marca_para: str = "") -> dict:
+                            idioma_nome: str, marca_de: str = "", marca_para: str = "",
+                            options: list = None) -> dict:
     """Traduz campos textuais de um produto via GPT-4o (chat completion)."""
     marca_instrucao = ""
     if marca_de and marca_para:
         marca_instrucao = f'\nBRAND REPLACEMENT: Replace ALL occurrences of the brand "{marca_de}" with "{marca_para}" in every field.\n'
+
+    options_input = ""
+    options_output = ""
+    if options:
+        options_json = json.dumps(options, ensure_ascii=False)
+        options_input = f"\noptions: {options_json}"
+        options_output = ', "options": [{"name": "translated name", "values": ["translated value1", "translated value2"]}]'
 
     prompt = f"""Translate ALL text fields of this Shopify product to {idioma_nome}.
 {marca_instrucao}
@@ -536,16 +544,17 @@ RULES:
 - Keep measurement units (cm, mm, kg, etc.) unchanged
 - Keep product codes/SKUs unchanged
 - If a field is empty, return it as empty string
+- Translate option names AND option values (e.g. "Cor" → "Color", "Ouro" → "Gold")
 - Return ONLY valid JSON (no markdown, no ```), with these exact keys:
 
-{{"title": "translated title", "body_html": "translated HTML", "seo_title": "translated SEO title", "seo_description": "translated SEO description", "tags": "translated tags"}}
+{{"title": "translated title", "body_html": "translated HTML", "seo_title": "translated SEO title", "seo_description": "translated SEO description", "tags": "translated tags"{options_output}}}
 
 Input:
 title: {title}
 body_html: {body_html}
 seo_title: {seo_title}
 seo_description: {seo_desc}
-tags: {tags}"""
+tags: {tags}{options_input}"""
 
     try:
         response = client.chat.completions.create(
@@ -2038,6 +2047,13 @@ def shopify_publicar():
         with open(mapping_path) as f:
             img_mapping = json.load(f)
 
+    # Load translated options for this language
+    options_translations = {}
+    options_path = lang_dir / "options_translations.json"
+    if options_path.exists():
+        with open(options_path) as f:
+            options_translations = json.load(f)
+
     # Identify description images per handle from state
     state_images = state.get("images", [])
     desc_urls_by_handle = {}  # {handle: set(original_urls)}
@@ -2096,6 +2112,32 @@ def shopify_publicar():
             if tt.get("tags"):
                 product_data["tags"] = tt["tags"]
 
+        # Apply translated options and variant values
+        if handle in options_translations:
+            translated_opts = options_translations[handle]
+            if translated_opts and isinstance(translated_opts, list):
+                # Build value mapping: original_value → translated_value
+                value_map = {}
+                original_options = product.get("options", [])
+                for i, orig_opt in enumerate(original_options):
+                    if i < len(translated_opts):
+                        trans_opt = translated_opts[i]
+                        orig_values = orig_opt.get("values", [])
+                        trans_values = trans_opt.get("values", [])
+                        for j, ov in enumerate(orig_values):
+                            if j < len(trans_values):
+                                value_map[ov] = trans_values[j]
+
+                # Apply translated options
+                product_data["options"] = translated_opts
+
+                # Apply translated values to variants
+                if "variants" in product_data:
+                    for variant in product_data["variants"]:
+                        for opt_key in ("option1", "option2", "option3"):
+                            if variant.get(opt_key) and variant[opt_key] in value_map:
+                                variant[opt_key] = value_map[variant[opt_key]]
+
         # Apply manual edits (override CSV translations)
         if handle in product_edits:
             edits = product_edits[handle]
@@ -2146,8 +2188,8 @@ def shopify_publicar():
                     else:
                         gallery_images.append(img_entry)
 
-        # For copy: also include original images that weren't translated
-        if is_copy and not gallery_images and not desc_image_data:
+        # For copy: include original gallery images when none were translated
+        if is_copy and not gallery_images:
             for img in product.get("images", []):
                 src = img.get("src", "")
                 if src:
@@ -2578,6 +2620,15 @@ def csv_traduzir_stream():
                             "tags": r.get("Tags", ""),
                         }
 
+                # Build handle → options map from shopify_products
+                shopify_products = state.get("shopify_products", [])
+                options_by_handle = {}
+                for sp in shopify_products:
+                    h = sp.get("handle", "")
+                    opts = sp.get("options", [])
+                    if h and opts:
+                        options_by_handle[h] = [{"name": o.get("name", ""), "values": o.get("values", [])} for o in opts]
+
                 for handle in unique_handles:
                     pd = product_data.get(handle, {})
                     if not pd.get("title") and not pd.get("body_html"):
@@ -2599,6 +2650,7 @@ def csv_traduzir_stream():
                         idioma_nome=nome_idioma,
                         marca_de=marca_de,
                         marca_para=marca_para,
+                        options=options_by_handle.get(handle),
                     )
 
                     if result:
@@ -2630,6 +2682,18 @@ def csv_traduzir_stream():
                 mapping_path = lang_dir / "img_mapping.json"
                 with open(mapping_path, "w") as fmap:
                     json.dump(mapping, fmap, ensure_ascii=False)
+
+            # Save translated options for publish route
+            if text_trans:
+                options_data = {}
+                for h, tt in text_trans.items():
+                    if "options" in tt:
+                        options_data[h] = tt["options"]
+                if options_data:
+                    lang_dir = job_dir / lang
+                    lang_dir.mkdir(exist_ok=True)
+                    with open(lang_dir / "options_translations.json", "w") as fopt:
+                        json.dump(options_data, fopt, ensure_ascii=False)
 
             yield f"data: {json.dumps({'type': 'complete', 'lang': lang, 'total_translated': current})}\n\n"
 
