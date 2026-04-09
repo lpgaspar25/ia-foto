@@ -2180,10 +2180,17 @@
                     const statusBadge = m.status === 'active'
                         ? '<span style="color:#10b981; font-size:0.75rem;">Ativo</span>'
                         : '<span style="color:#f59e0b; font-size:0.75rem;">Pendente</span>';
+                    const inviteLink = (m.status === 'pending' && m.invite_token)
+                        ? `<div style="margin-top:0.4rem; display:flex; gap:0.4rem; align-items:center;">
+                            <input type="text" value="${window.location.origin}/?invite=${m.invite_token}" readonly style="flex:1; font-size:0.75rem; padding:0.3rem 0.5rem; border:1px solid var(--border); border-radius:5px; background:var(--bg-secondary); color:var(--text-muted);">
+                            <button onclick="navigator.clipboard.writeText('${window.location.origin}/?invite=${m.invite_token}'); this.textContent='Copiado!'; setTimeout(()=>this.textContent='Copiar',2000)" style="font-size:0.75rem; padding:0.3rem 0.6rem; border:1px solid var(--border); border-radius:5px; background:var(--bg-primary); color:var(--text-primary); cursor:pointer; white-space:nowrap;">Copiar</button>
+                           </div>`
+                        : '';
                     item.innerHTML = `
                         <div style="flex:1;">
                             <div class="saved-store-name">${m.member_name || m.email}</div>
                             <div class="saved-store-url">${m.email} &middot; ${statusBadge}</div>
+                            ${inviteLink}
                         </div>
                         <button class="saved-store-remove" onclick="removeTeamMember(${m.id})" title="Remover">&#10005;</button>
                     `;

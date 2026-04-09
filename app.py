@@ -1328,7 +1328,7 @@ def team_list():
     conn = get_db()
     members = conn.execute("""
         SELECT tm.id, tm.email, tm.role, tm.status, tm.created_at,
-               u.nome as member_name
+               tm.invite_token, u.nome as member_name
         FROM team_members tm
         LEFT JOIN users u ON u.id = tm.member_id
         WHERE tm.owner_id = ?
