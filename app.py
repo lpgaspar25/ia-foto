@@ -536,15 +536,23 @@ def traduzir_texto_produto(client: OpenAI, title: str, body_html: str,
         options_input = f"\noptions: {options_json}"
         options_output = ', "options": [{"name": "translated name", "values": ["translated value1", "translated value2"]}]'
 
-    prompt = f"""Translate ALL text fields of this Shopify product to {idioma_nome}.
+    prompt = f"""You are a professional e-commerce copywriter. Translate this Shopify product listing to {idioma_nome}.
 {marca_instrucao}
-RULES:
+TRANSLATION STYLE:
+- Write like a native {idioma_nome}-speaking copywriter — natural, persuasive, customer-friendly
+- Do NOT translate word-for-word. Adapt expressions to sound native in {idioma_nome}
+- Use terms and phrases that real online shoppers expect (e.g. "eternizar" → "cherish forever" not "eternalize")
+- Keep the same emotional tone, energy, and sales intent as the original
+- Marketing phrases should feel like they were originally written in {idioma_nome}
+
+TECHNICAL RULES:
 - Keep ALL HTML tags and attributes exactly as they are (only translate the visible text between tags)
 - Keep brand names unchanged (unless brand replacement is specified above)
 - Keep measurement units (cm, mm, kg, etc.) unchanged
 - Keep product codes/SKUs unchanged
+- Keep emojis in the same positions
 - If a field is empty, return it as empty string
-- Translate option names AND option values (e.g. "Cor" → "Color", "Ouro" → "Gold")
+- Translate option names AND option values (e.g. "Cor" → "Color", "Ouro" → "Gold", "Prata" → "Silver")
 - Return ONLY valid JSON (no markdown, no ```), with these exact keys:
 
 {{"title": "translated title", "body_html": "translated HTML", "seo_title": "translated SEO title", "seo_description": "translated SEO description", "tags": "translated tags"{options_output}}}
