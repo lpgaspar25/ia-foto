@@ -2120,9 +2120,10 @@ def shopify_publicar():
         if template_suffix:
             product_data["template_suffix"] = template_suffix
 
-        # Collect translated images and track description image filenames
-        translated_images = []
-        desc_filenames = set()  # filenames of description images (for CDN matching)
+        # Collect translated images — separate gallery from description
+        gallery_images = []
+        desc_image_data = []  # [{attachment, filename}] — description only
+        desc_filenames = set()
         desc_orig_urls = desc_urls_by_handle.get(handle, set())
 
         if lang_dir.exists():
@@ -2130,24 +2131,32 @@ def shopify_publicar():
                 if img_file.is_file() and img_file.suffix in (".webp", ".jpg", ".jpeg", ".png") and handle in img_file.stem:
                     with open(img_file, "rb") as f:
                         img_b64 = base64.standard_b64encode(f.read()).decode("utf-8")
-                    translated_images.append({
-                        "attachment": img_b64,
-                        "filename": img_file.name,
-                    })
+
+                    img_entry = {"attachment": img_b64, "filename": img_file.name}
+
                     # Check if this is a description image
+                    is_desc = False
                     for orig_url, rel_path in img_mapping.items():
                         if orig_url in desc_orig_urls and Path(rel_path).name == img_file.name:
+                            is_desc = True
                             desc_filenames.add(img_file.name)
+                            break
+
+                    if is_desc:
+                        desc_image_data.append(img_entry)
+                    else:
+                        gallery_images.append(img_entry)
 
         # For copy: also include original images that weren't translated
-        if is_copy and not translated_images:
+        if is_copy and not gallery_images and not desc_image_data:
             for img in product.get("images", []):
                 src = img.get("src", "")
                 if src:
-                    translated_images.append({"src": src})
+                    gallery_images.append({"src": src})
 
-        if translated_images:
-            product_data["images"] = translated_images
+        # Only gallery/cover images go in product_data["images"]
+        if gallery_images:
+            product_data["images"] = gallery_images
 
         if not product_data:
             continue
@@ -2167,51 +2176,62 @@ def shopify_publicar():
                 if new_id:
                     product_ids_for_collection.append(new_id)
 
-                # ── Replace description image URLs in body_html with CDN URLs ──
-                if new_id and desc_filenames:
-                    new_images = new_product.get("images", [])
-                    # Build filename → CDN URL map
-                    cdn_map = {}
-                    for cdn_img in new_images:
-                        cdn_src = cdn_img.get("src", "")
-                        cdn_fname = cdn_src.split("/")[-1].split("?")[0]
-                        cdn_map[cdn_fname] = cdn_src
+                # ── Upload description images separately & fix body_html ──
+                if new_id and desc_image_data:
+                    cdn_map = {}  # filename → CDN URL
 
-                    body = product_data.get("body_html", "") or ""
-                    body_updated = False
+                    # Upload each description image via product images API
+                    imgs_url = f"https://{store_url}/admin/api/{SHOPIFY_API_VERSION}/products/{new_id}/images.json"
+                    for desc_img in desc_image_data:
+                        try:
+                            img_resp = http_requests.post(
+                                imgs_url, headers=headers,
+                                json={"image": desc_img}, timeout=30
+                            )
+                            if img_resp.status_code < 400:
+                                img_result = img_resp.json().get("image", {})
+                                cdn_src = img_result.get("src", "")
+                                if cdn_src:
+                                    cdn_fname = cdn_src.split("/")[-1].split("?")[0]
+                                    cdn_map[desc_img["filename"]] = cdn_src
+                        except Exception as img_err:
+                            logger.warning(f"[Shopify] Falha ao enviar img desc {desc_img['filename']}: {img_err}")
 
-                    # Replace relative paths (from CSV) with CDN URLs
-                    for orig_url, rel_path in img_mapping.items():
-                        if orig_url in desc_orig_urls:
-                            fname = Path(rel_path).name
-                            cdn_url = cdn_map.get(fname)
-                            if cdn_url:
-                                if rel_path in body:
-                                    body = body.replace(rel_path, cdn_url)
-                                    body_updated = True
-                                elif fname in body:
-                                    body = body.replace(fname, cdn_url)
-                                    body_updated = True
+                    if cdn_map:
+                        body = product_data.get("body_html", "") or ""
+                        body_updated = False
 
-                    # If no URL replacements happened (e.g. user edited text, images lost),
-                    # append translated description images at the end of body_html
-                    if not body_updated and desc_filenames:
-                        img_tags = []
+                        # Replace relative paths (from CSV) with CDN URLs
                         for orig_url, rel_path in img_mapping.items():
                             if orig_url in desc_orig_urls:
                                 fname = Path(rel_path).name
                                 cdn_url = cdn_map.get(fname)
                                 if cdn_url:
-                                    img_tags.append(f'<p><img src="{cdn_url}" alt=""></p>')
-                        if img_tags:
-                            body = body + "\n" + "\n".join(img_tags)
-                            body_updated = True
+                                    if rel_path in body:
+                                        body = body.replace(rel_path, cdn_url)
+                                        body_updated = True
+                                    elif fname in body:
+                                        body = body.replace(fname, cdn_url)
+                                        body_updated = True
 
-                    if body_updated:
-                        put_url = f"https://{store_url}/admin/api/{SHOPIFY_API_VERSION}/products/{new_id}.json"
-                        http_requests.put(put_url, headers=headers,
-                                          json={"product": {"id": new_id, "body_html": body}}, timeout=30)
-                        logger.info(f"[Shopify] body_html de {handle} atualizado com imagens de descrição")
+                        # If no replacements (user edited text → images lost), append at end
+                        if not body_updated:
+                            img_tags = []
+                            for orig_url, rel_path in img_mapping.items():
+                                if orig_url in desc_orig_urls:
+                                    fname = Path(rel_path).name
+                                    cdn_url = cdn_map.get(fname)
+                                    if cdn_url:
+                                        img_tags.append(f'<p><img src="{cdn_url}" alt=""></p>')
+                            if img_tags:
+                                body = body + "\n" + "\n".join(img_tags)
+                                body_updated = True
+
+                        if body_updated:
+                            put_url = f"https://{store_url}/admin/api/{SHOPIFY_API_VERSION}/products/{new_id}.json"
+                            http_requests.put(put_url, headers=headers,
+                                              json={"product": {"id": new_id, "body_html": body}}, timeout=30)
+                            logger.info(f"[Shopify] body_html de {handle} atualizado com {len(cdn_map)} imagens de descrição")
 
                 updated += 1
                 logger.info(f"[Shopify] Produto {handle} criado com sucesso na loja destino")
