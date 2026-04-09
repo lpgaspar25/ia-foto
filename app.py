@@ -984,13 +984,13 @@ def auth_save_shopify_store():
         logger.error(f"[Shopify] Erro ao validar loja: {e}")
         return jsonify({"erro": f"Erro ao validar: {e}"}), 500
 
-    user_id = session["user_id"]
+    owner_id = get_owner_id(session["user_id"])
     conn = get_db()
 
-    # Check if this store already exists for this user
+    # Check if this store already exists for this user/owner
     existing = conn.execute(
         "SELECT id FROM shopify_stores WHERE user_id = ? AND store_url = ?",
-        (user_id, store_url)
+        (owner_id, store_url)
     ).fetchone()
 
     if existing:
@@ -1002,7 +1002,7 @@ def auth_save_shopify_store():
     else:
         cursor = conn.execute(
             "INSERT INTO shopify_stores (user_id, store_name, store_url, access_token) VALUES (?, ?, ?, ?)",
-            (user_id, store_name or store_url, store_url, token)
+            (owner_id, store_name or store_url, store_url, token)
         )
         store_id = cursor.lastrowid
 
@@ -1115,12 +1115,12 @@ def shopify_oauth_callback():
             store_name = store_url
 
     # Save the store with credentials
-    user_id = session["user_id"]
+    owner_id = get_owner_id(session["user_id"])
     conn = get_db()
 
     existing = conn.execute(
         "SELECT id FROM shopify_stores WHERE user_id = ? AND store_url = ?",
-        (user_id, store_url)
+        (owner_id, store_url)
     ).fetchone()
 
     if existing:
@@ -1131,7 +1131,7 @@ def shopify_oauth_callback():
     else:
         conn.execute(
             "INSERT INTO shopify_stores (user_id, store_name, store_url, access_token, client_id, client_secret) VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id, store_name, store_url, access_token, client_id, client_secret)
+            (owner_id, store_name, store_url, access_token, client_id, client_secret)
         )
 
     conn.commit()
@@ -1148,11 +1148,11 @@ def shopify_oauth_callback():
 @login_required_api
 def auth_get_shopify_store(store_id):
     """Get Shopify store credentials (for auto-fill)."""
-    user_id = session["user_id"]
+    owner_id = get_owner_id(session["user_id"])
     conn = get_db()
     store = conn.execute(
         "SELECT id, store_name, store_url, access_token FROM shopify_stores WHERE id = ? AND user_id = ?",
-        (store_id, user_id)
+        (store_id, owner_id)
     ).fetchone()
     conn.close()
 
@@ -1166,11 +1166,11 @@ def auth_get_shopify_store(store_id):
 @login_required_api
 def auth_reconnect_shopify_store(store_id):
     """Reconnect a store via OAuth using saved credentials."""
-    user_id = session["user_id"]
+    owner_id = get_owner_id(session["user_id"])
     conn = get_db()
     store = conn.execute(
         "SELECT id, store_url, client_id, client_secret, store_name FROM shopify_stores WHERE id = ? AND user_id = ?",
-        (store_id, user_id)
+        (store_id, owner_id)
     ).fetchone()
     conn.close()
 
@@ -1210,11 +1210,11 @@ def auth_reconnect_shopify_store(store_id):
 @login_required_api
 def auth_test_shopify_store(store_id):
     """Test store connection by making a simple API call."""
-    user_id = session["user_id"]
+    owner_id = get_owner_id(session["user_id"])
     conn = get_db()
     store = conn.execute(
         "SELECT store_url, access_token FROM shopify_stores WHERE id = ? AND user_id = ?",
-        (store_id, user_id)
+        (store_id, owner_id)
     ).fetchone()
     conn.close()
 
@@ -1252,11 +1252,11 @@ def auth_test_shopify_store(store_id):
 @login_required_api
 def auth_delete_shopify_store(store_id):
     """Delete a linked Shopify store."""
-    user_id = session["user_id"]
+    owner_id = get_owner_id(session["user_id"])
     conn = get_db()
     conn.execute(
         "DELETE FROM shopify_stores WHERE id = ? AND user_id = ?",
-        (store_id, user_id)
+        (store_id, owner_id)
     )
     conn.commit()
     conn.close()
@@ -1905,11 +1905,11 @@ def shopify_copiar():
     dest_store_url = ""
     dest_token = ""
     if dest_store_id:
-        user_id = session["user_id"]
+        owner_id = get_owner_id(session["user_id"])
         conn = get_db()
         store = conn.execute(
             "SELECT store_url, access_token FROM shopify_stores WHERE id = ? AND user_id = ?",
-            (dest_store_id, user_id)
+            (dest_store_id, owner_id)
         ).fetchone()
         conn.close()
         if store:
@@ -2228,10 +2228,11 @@ def shopify_colecoes():
 
     # Allow lookup by saved store ID
     if store_id and "user_id" in session:
+        owner_id = get_owner_id(session["user_id"])
         conn = get_db()
         store = conn.execute(
             "SELECT store_url, access_token FROM shopify_stores WHERE id = ? AND user_id = ?",
-            (store_id, session["user_id"])
+            (store_id, owner_id)
         ).fetchone()
         conn.close()
         if store:
@@ -2273,10 +2274,11 @@ def shopify_templates():
 
     # Allow lookup by saved store ID
     if store_id and "user_id" in session:
+        owner_id = get_owner_id(session["user_id"])
         conn = get_db()
         store = conn.execute(
             "SELECT store_url, access_token FROM shopify_stores WHERE id = ? AND user_id = ?",
-            (store_id, session["user_id"])
+            (store_id, owner_id)
         ).fetchone()
         conn.close()
         if store:
@@ -2410,11 +2412,11 @@ def shopify_publicar():
 
     # Override with destination store from user's saved stores
     if dest_store_id:
-        user_id = session["user_id"]
+        owner_id = get_owner_id(session["user_id"])
         conn = get_db()
         dest = conn.execute(
             "SELECT store_url, access_token FROM shopify_stores WHERE id = ? AND user_id = ?",
-            (dest_store_id, user_id)
+            (dest_store_id, owner_id)
         ).fetchone()
         conn.close()
         if dest:
