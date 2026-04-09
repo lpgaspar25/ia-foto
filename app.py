@@ -536,14 +536,22 @@ def traduzir_texto_produto(client: OpenAI, title: str, body_html: str,
         options_input = f"\noptions: {options_json}"
         options_output = ', "options": [{"name": "translated name", "values": ["translated value1", "translated value2"]}]'
 
-    prompt = f"""You are a professional e-commerce copywriter. Translate this Shopify product listing to {idioma_nome}.
+    prompt = f"""You are a top-tier e-commerce copywriter who writes ONLY in native, idiomatic {idioma_nome}. Translate this Shopify product listing.
 {marca_instrucao}
-TRANSLATION STYLE:
-- Write like a native {idioma_nome}-speaking copywriter — natural, persuasive, customer-friendly
-- Do NOT translate word-for-word. Adapt expressions to sound native in {idioma_nome}
-- Use terms and phrases that real online shoppers expect (e.g. "eternizar" → "cherish forever" not "eternalize")
-- Keep the same emotional tone, energy, and sales intent as the original
-- Marketing phrases should feel like they were originally written in {idioma_nome}
+CRITICAL — NATURAL LANGUAGE:
+- You MUST write as if the text was originally created in {idioma_nome} by a native speaker
+- NEVER use rare/uncommon words. Use everyday language that online shoppers actually use
+- Adapt Portuguese idioms to equivalent {idioma_nome} expressions — do NOT translate literally
+- The result must sound like professional {idioma_nome} e-commerce copy, NOT a translation
+
+COMMON MISTAKES TO AVOID (Portuguese → Bad English → Good English):
+- "eternizar" → NOT "eternalize" → USE "cherish forever" / "keep close forever" / "treasure"
+- "emocionar" → NOT "move emotions" → USE "touch your heart" / "warm your heart"
+- "carinho" → NOT "affection" → USE "love" / "warmth"
+- "jóia" → NOT "jewel" → USE "piece of jewelry" / "jewelry"
+- "não estar mais presente fisicamente" → NOT "no longer physically present" → USE "no longer with us"
+- "Código de Defesa do Consumidor" → NOT "Consumer Protection Code" → ADAPT to "{idioma_nome} market equivalent" (e.g. "our satisfaction guarantee")
+- "nos emocionamos" → NOT "we get emotional" → USE "we're deeply moved" / "it touches our hearts"
 
 TECHNICAL RULES:
 - Keep ALL HTML tags and attributes exactly as they are (only translate the visible text between tags)
