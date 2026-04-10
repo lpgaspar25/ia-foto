@@ -1980,6 +1980,169 @@ def shopify_products_to_csv_rows(products: list[dict]) -> list[dict]:
     return rows
 
 
+# ─── Generic Product Scraper ─────────────────────────────
+
+def _scrape_product_from_page(page_url: str) -> Optional[dict]:
+    """Scrape product data from any e-commerce page using structured data and HTML parsing."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+    }
+
+    try:
+        # Some sites have bot challenges — try with a session and follow redirects
+        sess = http_requests.Session()
+        resp = sess.get(page_url, headers=headers, timeout=30, allow_redirects=True)
+
+        # Handle challenge pages (POST-based anti-bot)
+        if "challenge" in resp.text.lower() and resp.status_code == 200 and len(resp.text) < 3000:
+            # Try submitting the challenge form
+            soup_challenge = BeautifulSoup(resp.text, "html.parser")
+            form = soup_challenge.find("form")
+            if form:
+                action = form.get("action", page_url)
+                if not action.startswith("http"):
+                    from urllib.parse import urljoin
+                    action = urljoin(page_url, action)
+                form_data = {}
+                for inp in form.find_all("input"):
+                    name = inp.get("name")
+                    if name:
+                        form_data[name] = inp.get("value", "")
+                # Fill client_data if present
+                if "client_data" in form_data:
+                    form_data["client_data"] = json.dumps({"time": 500, "ua": headers["User-Agent"], "w": 1920, "h": 1080, "lang": "pt-BR", "cores": 8})
+                resp = sess.post(action, data=form_data, headers=headers, timeout=30, allow_redirects=True)
+
+        if resp.status_code != 200:
+            logger.warning(f"[Scraper] {page_url} returned {resp.status_code}")
+            return None
+
+        html = resp.text
+        soup = BeautifulSoup(html, "html.parser")
+        product = {}
+
+        # 1. Try JSON-LD structured data (most reliable)
+        for script in soup.find_all("script", type="application/ld+json"):
+            try:
+                ld = json.loads(script.string)
+                # Handle @graph arrays
+                items = ld if isinstance(ld, list) else ld.get("@graph", [ld])
+                for item in items:
+                    if item.get("@type") in ("Product", "IndividualProduct"):
+                        product["title"] = item.get("name", "")
+                        product["body_html"] = item.get("description", "")
+                        imgs = item.get("image", [])
+                        if isinstance(imgs, str):
+                            imgs = [imgs]
+                        elif isinstance(imgs, dict):
+                            imgs = [imgs.get("url", "")]
+                        product["images"] = [{"src": img} for img in imgs if img]
+
+                        # Variants from offers
+                        offers = item.get("offers", {})
+                        if isinstance(offers, dict):
+                            offers = [offers]
+                        if isinstance(offers, list):
+                            product["variants"] = []
+                            for offer in offers:
+                                variant = {
+                                    "price": str(offer.get("price", "")),
+                                    "option1": offer.get("name", ""),
+                                }
+                                product["variants"].append(variant)
+                        break
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+        # 2. Fallback: Open Graph / meta tags
+        if not product.get("title"):
+            og_title = soup.find("meta", property="og:title")
+            product["title"] = og_title["content"] if og_title and og_title.get("content") else ""
+        if not product.get("title"):
+            title_tag = soup.find("title")
+            product["title"] = title_tag.text.strip() if title_tag else ""
+
+        if not product.get("body_html"):
+            og_desc = soup.find("meta", property="og:description")
+            product["body_html"] = og_desc["content"] if og_desc and og_desc.get("content") else ""
+        if not product.get("body_html"):
+            meta_desc = soup.find("meta", attrs={"name": "description"})
+            product["body_html"] = meta_desc["content"] if meta_desc and meta_desc.get("content") else ""
+
+        # Try to find rich description in common e-commerce selectors
+        if not product.get("body_html") or len(product.get("body_html", "")) < 50:
+            desc_selectors = [
+                ".product-description", ".product__description", "#product-description",
+                "[data-product-description]", ".description", ".product-single__description",
+                ".woocommerce-product-details__short-description", ".product_description",
+                ".product-info-description", "#tab-description",
+            ]
+            for sel in desc_selectors:
+                desc_el = soup.select_one(sel)
+                if desc_el and len(desc_el.get_text(strip=True)) > 20:
+                    product["body_html"] = str(desc_el)
+                    break
+
+        # Images from OG or page
+        if not product.get("images"):
+            og_img = soup.find("meta", property="og:image")
+            if og_img and og_img.get("content"):
+                product["images"] = [{"src": og_img["content"]}]
+
+        # Find more product images
+        if not product.get("images") or len(product.get("images", [])) < 2:
+            existing = {img["src"] for img in product.get("images", [])}
+            img_selectors = [
+                ".product-gallery img", ".product__media img", ".product-images img",
+                ".product-single__photo img", "[data-product-image]", ".product-image img",
+                ".woocommerce-product-gallery img", ".product-thumbs img",
+            ]
+            for sel in img_selectors:
+                for img_el in soup.select(sel):
+                    src = img_el.get("src") or img_el.get("data-src") or img_el.get("data-lazy-src") or ""
+                    if src and src not in existing and not src.endswith(".svg"):
+                        if not src.startswith("http"):
+                            from urllib.parse import urljoin
+                            src = urljoin(page_url, src)
+                        product.setdefault("images", []).append({"src": src})
+                        existing.add(src)
+
+        # Generate a handle from the URL
+        from urllib.parse import urlparse
+        parsed = urlparse(page_url)
+        path = parsed.path.strip("/").split("/")[-1] if parsed.path else ""
+        product["handle"] = path or product.get("title", "").lower().replace(" ", "-")[:80]
+
+        # Set defaults
+        product.setdefault("tags", "")
+        product.setdefault("vendor", parsed.netloc)
+        product.setdefault("product_type", "")
+        product.setdefault("variants", [{"price": "", "option1": "Default"}])
+
+        if not product.get("title"):
+            return None
+
+        logger.info(f"[Scraper] Extracted product: {product['title'][:60]} with {len(product.get('images', []))} images")
+        return product
+
+    except Exception as e:
+        logger.error(f"[Scraper] Failed to scrape {page_url}: {e}")
+        return None
+
+
+def _is_shopify_store(domain: str) -> bool:
+    """Quick check if a domain is a Shopify store."""
+    if ".myshopify.com" in domain:
+        return True
+    try:
+        resp = http_requests.get(f"https://{domain}/products.json?limit=1", timeout=10)
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
 # ─── Rotas Shopify API ───────────────────────────────────
 
 def _clean_store_url(url: str) -> str:
@@ -2014,7 +2177,7 @@ def _extract_product_handle(raw_url: str) -> Optional[str]:
 @app.route("/shopify/copiar", methods=["POST"])
 @login_required_api
 def shopify_copiar():
-    """Scrape products from a public Shopify store and prepare for translation."""
+    """Scrape products from a public e-commerce store and prepare for translation."""
     data = request.get_json()
     source_url = (data.get("source_url") or "").strip()
     dest_store_id = data.get("dest_store_id")
@@ -2022,9 +2185,16 @@ def shopify_copiar():
     if not source_url:
         return jsonify({"erro": "URL da loja fonte é obrigatória"}), 400
 
+    # Normalize URL
+    if not source_url.startswith("http"):
+        source_url = "https://" + source_url
+
     # Detect if the URL points to a specific product
     product_handle = _extract_product_handle(source_url)
     store_domain = _clean_store_url(source_url)
+
+    # Check if it's a Shopify store
+    is_shopify = _is_shopify_store(store_domain)
 
     # Load destination store credentials
     dest_store_url = ""
@@ -2053,69 +2223,66 @@ def shopify_copiar():
             dest_store_url = fallback["store_url"]
             dest_token = fallback["access_token"]
 
-    # Fetch products from public endpoint
-    try:
-        all_products = []
+    # Fetch products
+    all_products = []
 
-        if product_handle:
-            # Single product by handle — try /products/handle.json first
-            url = f"https://{store_domain}/products/{product_handle}.json"
-            resp = http_requests.get(url, timeout=30)
-            if resp.status_code == 200:
-                product = resp.json().get("product")
-                if product:
-                    all_products.append(product)
-            else:
-                # Some stores use custom URLs — try scraping the page for product JSON
-                logger.info(f"[Copiar] /products/{product_handle}.json returned {resp.status_code}, trying page scrape")
-                page_url = f"https://{store_domain}/{product_handle}"
-                page_resp = http_requests.get(page_url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
-                if page_resp.status_code == 200:
-                    # Try to find product JSON in the page (Shopify embeds it)
-                    page_text = page_resp.text
-                    # Look for /products/real-handle pattern in the page
-                    handle_match = re.search(r'/products/([a-zA-Z0-9_-]+)(?:\.js|\.json|")', page_text)
-                    if handle_match:
-                        real_handle = handle_match.group(1)
-                        url2 = f"https://{store_domain}/products/{real_handle}.json"
-                        resp2 = http_requests.get(url2, timeout=30)
-                        if resp2.status_code == 200:
-                            product = resp2.json().get("product")
-                            if product:
-                                all_products.append(product)
-                    # Fallback: try .js endpoint
-                    if not all_products:
-                        js_url = f"https://{store_domain}/products/{product_handle}.js"
-                        js_resp = http_requests.get(js_url, timeout=30)
-                        if js_resp.status_code == 200:
-                            product = js_resp.json()
-                            if product and product.get("title"):
-                                all_products.append(product)
-        else:
-            # All products from store
-            page = 1
-            while True:
-                url = f"https://{store_domain}/products.json?limit=250&page={page}"
+    if is_shopify:
+        # ── Shopify store: use JSON API ──
+        try:
+            if product_handle:
+                url = f"https://{store_domain}/products/{product_handle}.json"
                 resp = http_requests.get(url, timeout=30)
-                resp.raise_for_status()
-                products = resp.json().get("products", [])
-                all_products.extend(products)
-                if len(products) < 250:
-                    break
-                page += 1
-                if page > 10:  # safety limit
-                    break
+                if resp.status_code == 200:
+                    product = resp.json().get("product")
+                    if product:
+                        all_products.append(product)
+                else:
+                    logger.info(f"[Copiar] /products/{product_handle}.json returned {resp.status_code}, trying page scrape")
+                    page_url = f"https://{store_domain}/{product_handle}"
+                    page_resp = http_requests.get(page_url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+                    if page_resp.status_code == 200:
+                        page_text = page_resp.text
+                        handle_match = re.search(r'/products/([a-zA-Z0-9_-]+)(?:\.js|\.json|")', page_text)
+                        if handle_match:
+                            real_handle = handle_match.group(1)
+                            url2 = f"https://{store_domain}/products/{real_handle}.json"
+                            resp2 = http_requests.get(url2, timeout=30)
+                            if resp2.status_code == 200:
+                                product = resp2.json().get("product")
+                                if product:
+                                    all_products.append(product)
+                        if not all_products:
+                            js_url = f"https://{store_domain}/products/{product_handle}.js"
+                            js_resp = http_requests.get(js_url, timeout=30)
+                            if js_resp.status_code == 200:
+                                product = js_resp.json()
+                                if product and product.get("title"):
+                                    all_products.append(product)
+            else:
+                page = 1
+                while True:
+                    url = f"https://{store_domain}/products.json?limit=250&page={page}"
+                    resp = http_requests.get(url, timeout=30)
+                    resp.raise_for_status()
+                    products = resp.json().get("products", [])
+                    all_products.extend(products)
+                    if len(products) < 250:
+                        break
+                    page += 1
+                    if page > 10:
+                        break
+        except Exception as e:
+            logger.warning(f"[Copiar] Shopify API failed: {e}")
 
-        if not all_products:
-            return jsonify({"erro": "Nenhum produto encontrado. Verifique a URL."}), 400
+    # ── Fallback: Generic HTML scraping for any platform ──
+    if not all_products:
+        logger.info(f"[Copiar] Trying generic scraper for {source_url}")
+        scraped = _scrape_product_from_page(source_url)
+        if scraped:
+            all_products.append(scraped)
 
-    except http_requests.exceptions.HTTPError as e:
-        if e.response is not None and e.response.status_code == 404:
-            return jsonify({"erro": "Produto ou loja não encontrada. Verifique a URL."}), 404
-        return jsonify({"erro": f"Erro ao acessar loja: {e}"}), 500
-    except Exception as e:
-        logger.error(f"[Shopify Copiar] Erro: {e}")
-        return jsonify({"erro": f"Erro: {e}"}), 500
+    if not all_products:
+        return jsonify({"erro": "Produto ou loja não encontrada. Verifique a URL. Plataformas suportadas: Shopify, Nuvemshop, WooCommerce e outros."}), 404
 
     # Convert to CSV-like rows
     rows = shopify_products_to_csv_rows(all_products)
