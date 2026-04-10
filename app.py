@@ -2341,7 +2341,10 @@ def shopify_copiar():
             all_products.append(scraped)
 
     if not all_products:
-        return jsonify({"erro": "Produto ou loja não encontrada. Verifique a URL. Plataformas suportadas: Shopify, Nuvemshop, WooCommerce e outros."}), 404
+        return jsonify({
+            "erro": "Não foi possível extrair o produto automaticamente. Esta loja tem proteção anti-bot. Use a entrada manual abaixo.",
+            "manual_input": True,
+        }), 404
 
     # Convert to CSV-like rows
     rows = shopify_products_to_csv_rows(all_products)
@@ -2429,6 +2432,140 @@ def shopify_copiar():
         "total_images": len(images),
         "images": result_images,
         "source": "shopify_public",
+    })
+
+
+@app.route("/shopify/manual-product", methods=["POST"])
+@login_required_api
+def shopify_manual_product():
+    """Handle manually entered product data when auto-scraping fails."""
+    data = request.get_json()
+    title = (data.get("title") or "").strip()
+    description = (data.get("description") or "").strip()
+    image_urls = data.get("image_urls") or []
+    dest_store_id = data.get("dest_store_id")
+
+    if not title:
+        return jsonify({"erro": "Nome do produto é obrigatório"}), 400
+
+    # Load destination store credentials
+    dest_store_url = ""
+    dest_token = ""
+    owner_id = get_owner_id(session["user_id"])
+    if dest_store_id:
+        conn = get_db()
+        store = conn.execute(
+            "SELECT store_url, access_token FROM shopify_stores WHERE id = ? AND user_id = ?",
+            (dest_store_id, owner_id)
+        ).fetchone()
+        conn.close()
+        if store:
+            dest_store_url = store["store_url"]
+            dest_token = store["access_token"]
+
+    if not dest_store_url or not dest_token:
+        conn = get_db()
+        fallback = conn.execute(
+            "SELECT store_url, access_token FROM shopify_stores WHERE user_id = ? AND access_token IS NOT NULL AND access_token != '' ORDER BY updated_at DESC LIMIT 1",
+            (owner_id,)
+        ).fetchone()
+        conn.close()
+        if fallback:
+            dest_store_url = fallback["store_url"]
+            dest_token = fallback["access_token"]
+
+    # Build a Shopify-like product structure
+    handle = re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-')
+    product = {
+        "title": title,
+        "body_html": description,
+        "handle": handle,
+        "images": [{"src": url} for url in image_urls],
+        "variants": [],
+        "options": [],
+    }
+
+    # Convert to CSV-like rows
+    rows = shopify_products_to_csv_rows([product])
+    images = extract_images_from_csv(rows)
+
+    # Create job directory
+    job_id = str(uuid.uuid4())[:8]
+    job_dir = OUTPUT_FOLDER / job_id
+    job_dir.mkdir(exist_ok=True)
+
+    product_count = 1
+
+    # Download images and detect text
+    try:
+        client = get_client()
+    except ValueError as e:
+        return jsonify({"erro": str(e)}), 500
+
+    result_images = []
+    for i, img_info in enumerate(images):
+        logger.info(f"[Manual Product] Downloading image {i+1}/{len(images)}: {img_info['filename']}")
+
+        img_bytes = download_image(img_info["url"])
+        if not img_bytes:
+            result_images.append({
+                "index": i, "url": img_info["url"], "source": img_info["source"],
+                "handle": img_info["handle"], "filename": img_info["filename"],
+                "has_text": False, "description": "Erro ao baixar imagem", "error": True,
+            })
+            continue
+
+        img_path = job_dir / f"original_{i}_{img_info['filename']}"
+        with open(img_path, "wb") as f:
+            f.write(img_bytes)
+
+        ext = Path(img_info["filename"]).suffix.lower()
+        mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}.get(ext, "image/png")
+        detection = detect_text_in_image(client, img_bytes, mime)
+
+        try:
+            thumb = Image.open(io.BytesIO(img_bytes))
+            thumb.thumbnail((120, 120))
+            if thumb.mode in ("RGBA", "P"):
+                thumb = thumb.convert("RGB")
+            buf = io.BytesIO()
+            thumb.save(buf, format="JPEG", quality=70)
+            thumb_b64 = base64.standard_b64encode(buf.getvalue()).decode("utf-8")
+        except Exception:
+            thumb_b64 = ""
+
+        result_images.append({
+            "index": i, "url": img_info["url"], "source": img_info["source"],
+            "handle": img_info["handle"], "filename": img_info["filename"],
+            "has_text": detection.get("has_text", False),
+            "description": detection.get("description", ""),
+            "thumbnail": f"data:image/jpeg;base64,{thumb_b64}" if thumb_b64 else "",
+        })
+        time.sleep(0.5)
+
+    # Save state
+    state = {
+        "rows": rows,
+        "images": [img for img in images],
+        "product_count": product_count,
+        "source_url": "manual",
+        "shopify_store_url": dest_store_url,
+        "shopify_token": dest_token,
+        "shopify_products": [product],
+        "dest_store_id": dest_store_id,
+    }
+    with open(job_dir / "state.json", "w") as f:
+        json.dump(state, f, ensure_ascii=False)
+
+    if "user_id" in session:
+        save_job_record(session["user_id"], job_id, "manual_product", title, product_count, len(images))
+
+    return jsonify({
+        "job_id": job_id,
+        "product_count": product_count,
+        "total_images": len(images),
+        "images": result_images,
+        "source": "manual",
     })
 
 

@@ -1618,6 +1618,43 @@
                         <button class="btn-csv" id="btnConectar" onclick="copiarShopify()" disabled>
                             Copiar e Extrair Produtos
                         </button>
+
+                        <!-- Manual Product Input (shown when auto-scraping fails) -->
+                        <div id="manualProductForm" style="display:none; margin-top:1rem;">
+                            <div class="card" style="border:1px solid var(--accent3); border-style:dashed;">
+                                <h2 style="color:var(--accent3-hover);">Entrada Manual do Produto</h2>
+                                <p style="color:var(--text-secondary); font-size:0.82rem; margin-bottom:1rem;">
+                                    A extração automática não funcionou para esta loja. Preencha os dados do produto manualmente.
+                                </p>
+
+                                <div class="shopify-field">
+                                    <label>Nome do Produto *</label>
+                                    <input type="text" id="manualTitle" placeholder="Ex: Pulseira Medalha M Personalizada">
+                                </div>
+
+                                <div class="shopify-field" style="margin-top:0.8rem;">
+                                    <label>Descrição do Produto (HTML)</label>
+                                    <textarea id="manualDescription" rows="6" placeholder="Cole aqui a descrição do produto..." style="width:100%; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary); padding:0.7rem; font-size:0.85rem; resize:vertical; font-family:inherit;"></textarea>
+                                    <div class="shopify-hint">Dica: copie a descrição diretamente do site do produto</div>
+                                </div>
+
+                                <div class="shopify-field" style="margin-top:0.8rem;">
+                                    <label>URLs das Imagens (uma por linha)</label>
+                                    <textarea id="manualImageUrls" rows="4" placeholder="https://exemplo.com/imagem1.jpg&#10;https://exemplo.com/imagem2.jpg" style="width:100%; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary); padding:0.7rem; font-size:0.85rem; resize:vertical; font-family:inherit;"></textarea>
+                                    <div class="shopify-hint">Cole as URLs das imagens do produto, uma por linha. Clique com o botão direito na imagem do site e selecione "Copiar endereço da imagem".</div>
+                                </div>
+
+                                <div style="display:flex; gap:0.8rem; margin-top:1rem;">
+                                    <button class="btn-csv" id="btnManualSubmit" onclick="submitManualProduct()" style="flex:1;">
+                                        Processar Produto Manual
+                                    </button>
+                                    <button class="btn-csv" onclick="document.getElementById('manualProductForm').style.display='none';" style="background:var(--bg-elevated); color:var(--text-secondary); border:1px solid var(--border); flex:0 0 auto; padding:0.6rem 1.2rem;">
+                                        Cancelar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
 
@@ -2978,6 +3015,10 @@
                     statusEl.textContent = data.erro;
                     btn.disabled = false;
                     btn.textContent = 'Copiar e Extrair Produtos';
+                    // Show manual input form when auto-scraping fails
+                    if (data.manual_input) {
+                        document.getElementById('manualProductForm').style.display = 'block';
+                    }
                     return;
                 }
 
@@ -3031,6 +3072,109 @@
                 document.getElementById('csvLoading1').classList.remove('visible');
                 btn.disabled = false;
                 btn.textContent = 'Copiar e Extrair Produtos';
+            }
+        }
+
+        // ─── Manual Product Input ───
+        async function submitManualProduct() {
+            const title = document.getElementById('manualTitle').value.trim();
+            const description = document.getElementById('manualDescription').value.trim();
+            const imageUrlsRaw = document.getElementById('manualImageUrls').value.trim();
+
+            if (!title) {
+                alert('Preencha o nome do produto.');
+                return;
+            }
+
+            const imageUrls = imageUrlsRaw ? imageUrlsRaw.split('\n').map(u => u.trim()).filter(u => u) : [];
+
+            const statusEl = document.getElementById('shopifyConnectStatus');
+            const btn = document.getElementById('btnManualSubmit');
+            btn.disabled = true;
+            btn.textContent = 'Processando...';
+
+            statusEl.style.display = 'block';
+            statusEl.style.background = 'var(--bg-input)';
+            statusEl.style.color = 'var(--text-secondary)';
+            statusEl.textContent = 'Processando produto manual...';
+
+            document.getElementById('csvLoading1').classList.add('visible');
+            document.getElementById('csvLoading1Text').innerHTML =
+                'Processando produto <span class="loading-lang" style="color:var(--accent3-hover);">manual</span>';
+            document.getElementById('csvLoading1Sub').textContent =
+                'Baixando imagens e detectando texto...';
+
+            try {
+                const resp = await fetch('/shopify/manual-product', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        title: title,
+                        description: description,
+                        image_urls: imageUrls,
+                        dest_store_id: selectedDestStoreId,
+                    }),
+                });
+                const data = await resp.json();
+
+                if (data.erro) {
+                    statusEl.style.background = 'rgba(239,68,68,0.1)';
+                    statusEl.style.color = '#ef4444';
+                    statusEl.textContent = data.erro;
+                    return;
+                }
+
+                // Success — same flow as copiarShopify
+                shopifyConnected = true;
+                csvJobId = data.job_id;
+                csvImages = data.images;
+
+                statusEl.style.background = 'rgba(16,185,129,0.1)';
+                statusEl.style.color = '#10b981';
+                statusEl.textContent = `${data.product_count} produto(s) processado(s) com sucesso!`;
+
+                const textCount = data.images.filter(i => i.has_text).length;
+                document.getElementById('csvSummary').innerHTML = `
+                    <div class="csv-summary-item"><div class="value">${data.product_count}</div><div class="label">Produtos</div></div>
+                    <div class="csv-summary-item"><div class="value">${data.total_images}</div><div class="label">Imagens</div></div>
+                    <div class="csv-summary-item"><div class="value">${textCount}</div><div class="label">Com texto</div></div>
+                `;
+
+                const tbody = document.getElementById('csvImageTableBody');
+                tbody.innerHTML = '';
+                data.images.forEach(img => {
+                    const badgeClass = img.source === 'gallery' ? 'badge-gallery' :
+                                       img.source === 'variant' ? 'badge-variant' : 'badge-description';
+                    const badgeLabel = img.source === 'gallery' ? 'Galeria' :
+                                       img.source === 'variant' ? 'Variante' : 'Descrição';
+                    const textClass = img.has_text ? 'has-text' : 'no-text';
+                    const textLabel = img.has_text ? '✅ Tem texto' : '⚪ Sem texto';
+
+                    tbody.innerHTML += `
+                        <tr>
+                            <td><input type="checkbox" class="csv-checkbox" data-index="${img.index}" data-has-text="${img.has_text}" ${img.has_text ? 'checked' : ''} onchange="updateCsvTraduzirBtn()"></td>
+                            <td>${img.thumbnail ? `<img class="img-review-thumb" src="${img.thumbnail}">` : '<div style="width:60px;height:60px;background:#222;border-radius:6px;"></div>'}</td>
+                            <td><span class="badge ${badgeClass}">${badgeLabel}</span></td>
+                            <td style="color:var(--text-secondary);">${img.handle}</td>
+                            <td><span class="text-indicator ${textClass}">${textLabel}</span></td>
+                            <td style="color:var(--text-muted); font-size:0.78rem; max-width:200px;">${img.description || (img.error ? '⚠️ Erro ao baixar' : '')}</td>
+                        </tr>
+                    `;
+                });
+
+                document.getElementById('manualProductForm').style.display = 'none';
+                document.getElementById('csvPhase1').classList.remove('visible');
+                document.getElementById('csvPhase2').classList.add('visible');
+                updateCsvTraduzirBtn();
+
+            } catch (err) {
+                statusEl.style.background = 'rgba(239,68,68,0.1)';
+                statusEl.style.color = '#ef4444';
+                statusEl.textContent = 'Erro de conexão: ' + err.message;
+            } finally {
+                document.getElementById('csvLoading1').classList.remove('visible');
+                btn.disabled = false;
+                btn.textContent = 'Processar Produto Manual';
             }
         }
 
