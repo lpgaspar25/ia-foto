@@ -46,6 +46,13 @@ except ImportError:
     sys.exit(1)
 
 try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+    print("Aviso: anthropic não instalado. Tradução via Claude indisponível.")
+
+try:
     from google import genai
     from google.genai import types as genai_types
     GEMINI_AVAILABLE = True
@@ -240,6 +247,7 @@ def send_invite_email(to_email: str, owner_name: str, invite_token: str) -> bool
 # Cost estimates per model (USD)
 API_COSTS = {
     "gpt-4o": {"input": 2.50 / 1_000_000, "output": 10.00 / 1_000_000},
+    "claude-sonnet-4-6": {"input": 3.00 / 1_000_000, "output": 15.00 / 1_000_000},
     "gpt-image-1": {"per_image": 0.02},
     "gemini-3-pro-image": {"per_image": 0.03},
     "gemini-3.1-flash-image-preview": {"per_image": 0.015},
@@ -360,6 +368,15 @@ def get_client() -> OpenAI:
     if not api_key:
         raise ValueError("OPENAI_API_KEY não configurada")
     return OpenAI(api_key=api_key)
+
+
+def get_anthropic_client():
+    if not ANTHROPIC_AVAILABLE:
+        raise ValueError("anthropic SDK não instalado")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY não configurada")
+    return anthropic.Anthropic(api_key=api_key)
 
 
 def converter_imagem(imagem_bytes: bytes, formato: str = "webp") -> bytes:
@@ -661,11 +678,11 @@ def detect_text_in_image(client: OpenAI, img_bytes: bytes, mime_type: str = "ima
         return {"has_text": True, "description": "Não foi possível analisar (assumindo que tem texto)"}
 
 
-def traduzir_texto_produto(client: OpenAI, title: str, body_html: str,
+def traduzir_texto_produto(client, title: str, body_html: str,
                             seo_title: str, seo_desc: str, tags: str,
                             idioma_nome: str, marca_de: str = "", marca_para: str = "",
                             options: list = None) -> dict:
-    """Traduz campos textuais de um produto via GPT-4o (chat completion)."""
+    """Traduz campos textuais de um produto via Claude Sonnet (fallback GPT-4o)."""
     marca_instrucao = ""
     if marca_de and marca_para:
         marca_instrucao = f'\nBRAND REPLACEMENT: Replace ALL occurrences of the brand "{marca_de}" with "{marca_para}" in every field.\n'
@@ -726,21 +743,41 @@ seo_description: {seo_desc}
 tags: {tags}{options_input}"""
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=4000,
-        )
-        # Track usage
-        usage = getattr(response, "usage", None)
-        if usage and "user_id" in session:
-            track_api_usage(
-                session["user_id"], "text_translation", "gpt-4o",
-                tokens_input=getattr(usage, "prompt_tokens", 0),
-                tokens_output=getattr(usage, "completion_tokens", 0),
+        # Use Claude Sonnet as primary translator
+        if ANTHROPIC_AVAILABLE and os.environ.get("ANTHROPIC_API_KEY"):
+            anthropic_client = get_anthropic_client()
+            response = anthropic_client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=4000,
+                messages=[{"role": "user", "content": prompt}],
             )
+            # Track usage
+            input_tokens = response.usage.input_tokens if response.usage else 0
+            output_tokens = response.usage.output_tokens if response.usage else 0
+            if "user_id" in session:
+                track_api_usage(
+                    session["user_id"], "text_translation", "claude-sonnet-4-6",
+                    tokens_input=input_tokens,
+                    tokens_output=output_tokens,
+                )
 
-        text = response.choices[0].message.content.strip()
+            text = response.content[0].text.strip()
+        else:
+            # Fallback to GPT-4o
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=4000,
+            )
+            usage = getattr(response, "usage", None)
+            if usage and "user_id" in session:
+                track_api_usage(
+                    session["user_id"], "text_translation", "gpt-4o",
+                    tokens_input=getattr(usage, "prompt_tokens", 0),
+                    tokens_output=getattr(usage, "completion_tokens", 0),
+                )
+            text = response.choices[0].message.content.strip()
+
         text = re.sub(r"^```json?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
         return json.loads(text)
