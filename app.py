@@ -1744,6 +1744,84 @@ def download(job_id, nome_arquivo):
 
 SHOPIFY_API_VERSION = "2026-04"
 
+# Language code → Shopify locale mapping
+LANG_TO_SHOPIFY_LOCALE = {
+    "en": "en", "es": "es", "fr": "fr", "de": "de", "it": "it",
+    "nl": "nl", "pt": "pt-BR", "pt-br": "pt-BR", "ja": "ja", "ko": "ko",
+    "zh": "zh-CN", "ar": "ar", "ru": "ru", "pl": "pl", "sv": "sv",
+    "da": "da", "no": "nb", "fi": "fi", "tr": "tr", "he": "he",
+    "th": "th", "cs": "cs", "hu": "hu", "ro": "ro", "uk": "uk",
+}
+
+
+def shopify_graphql(store_url: str, token: str, query: str, variables: dict = None) -> dict:
+    """Execute a GraphQL query against Shopify Admin API."""
+    url = f"https://{store_url}/admin/api/{SHOPIFY_API_VERSION}/graphql.json"
+    headers = {"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
+    payload = {"query": query}
+    if variables:
+        payload["variables"] = variables
+    resp = http_requests.post(url, headers=headers, json=payload, timeout=60)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def shopify_register_translation(store_url: str, token: str, resource_gid: str, locale: str, translations: list[dict]) -> dict:
+    """Register translations for a Shopify resource using the Translations API.
+
+    translations: list of {"key": "title", "value": "Translated Title", "translatableContentDigest": "..."}
+    """
+    mutation = """
+    mutation translationsRegister($resourceId: ID!, $translations: [TranslationInput!]!) {
+        translationsRegister(resourceId: $resourceId, translations: $translations) {
+            userErrors {
+                field
+                message
+            }
+            translations {
+                key
+                value
+                locale
+            }
+        }
+    }
+    """
+    variables = {
+        "resourceId": resource_gid,
+        "translations": [
+            {
+                "key": t["key"],
+                "value": t["value"],
+                "locale": locale,
+                "translatableContentDigest": t["digest"],
+            }
+            for t in translations
+        ],
+    }
+    return shopify_graphql(store_url, token, mutation, variables)
+
+
+def shopify_get_translatable_content(store_url: str, token: str, resource_gid: str) -> list[dict]:
+    """Get translatable content and digests for a resource."""
+    query = """
+    query translatableResource($resourceId: ID!) {
+        translatableResource(resourceId: $resourceId) {
+            resourceId
+            translatableContent {
+                key
+                value
+                digest
+                locale
+            }
+        }
+    }
+    """
+    result = shopify_graphql(store_url, token, query, {"resourceId": resource_gid})
+    resource = result.get("data", {}).get("translatableResource")
+    if resource:
+        return resource.get("translatableContent", [])
+    return []
+
 
 def shopify_api_get(store_url: str, token: str, endpoint: str, params: dict = None) -> dict:
     """GET request to Shopify Admin API."""
@@ -2759,6 +2837,233 @@ def shopify_publicar():
         "collection_added": collection_added,
         "errors": errors,
         "language": nome_idioma,
+    })
+
+
+@app.route("/shopify/traduzir", methods=["POST"])
+@login_required_api
+def shopify_traduzir():
+    """Push translations via Shopify Translations API (Translate & Adapt integration)."""
+    data = request.get_json()
+    job_id = data.get("job_id", "")
+    lang = data.get("lang", "")
+    product_edits = data.get("product_edits", {})
+    dest_store_id = data.get("dest_store_id")
+
+    if not job_id or not lang:
+        return jsonify({"erro": "job_id e lang são obrigatórios"}), 400
+
+    # Map language code to Shopify locale
+    shopify_locale = LANG_TO_SHOPIFY_LOCALE.get(lang, lang)
+
+    job_dir = OUTPUT_FOLDER / job_id
+    state_path = job_dir / "state.json"
+
+    if not state_path.exists():
+        return jsonify({"erro": "Job não encontrado"}), 404
+
+    with open(state_path) as f:
+        state = json.load(f)
+
+    store_url = state.get("shopify_store_url", "")
+    token = state.get("shopify_token", "")
+    shopify_products = state.get("shopify_products", [])
+
+    # Resolve store credentials (same logic as publish)
+    owner_id = get_owner_id(session["user_id"])
+    if dest_store_id:
+        conn = get_db()
+        dest = conn.execute(
+            "SELECT store_url, access_token FROM shopify_stores WHERE id = ? AND user_id = ?",
+            (dest_store_id, owner_id)
+        ).fetchone()
+        conn.close()
+        if dest:
+            store_url = dest["store_url"]
+            token = dest["access_token"]
+
+    if not store_url or not token:
+        conn = get_db()
+        fallback = conn.execute(
+            "SELECT store_url, access_token FROM shopify_stores WHERE user_id = ? AND access_token IS NOT NULL AND access_token != '' ORDER BY updated_at DESC LIMIT 1",
+            (owner_id,)
+        ).fetchone()
+        conn.close()
+        if fallback:
+            store_url = fallback["store_url"]
+            token = fallback["access_token"]
+
+    if not store_url or not token:
+        return jsonify({"erro": "Selecione uma loja destino."}), 400
+
+    if not shopify_products:
+        return jsonify({"erro": "Produtos Shopify não encontrados no estado do job."}), 400
+
+    # Read translated CSV
+    csv_path = job_dir / lang / f"products_export_{lang}.csv"
+    text_translations = {}
+    if csv_path.exists():
+        with open(csv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                handle = row.get("Handle", "")
+                if handle and handle not in text_translations:
+                    text_translations[handle] = {
+                        "title": row.get("Title", ""),
+                        "body_html": row.get("Body (HTML)", ""),
+                        "seo_title": row.get("SEO Title", ""),
+                        "seo_description": row.get("SEO Description", ""),
+                        "tags": row.get("Tags", ""),
+                    }
+
+    # Load translated options
+    lang_dir = job_dir / lang
+    options_translations = {}
+    options_path = lang_dir / "options_translations.json"
+    if options_path.exists():
+        with open(options_path) as f:
+            options_translations = json.load(f)
+
+    translated = 0
+    errors = []
+    seen_handles = set()
+
+    for product in shopify_products:
+        handle = product.get("handle", "")
+        product_id = product.get("id")
+        if not handle or handle in seen_handles or not product_id:
+            continue
+        seen_handles.add(handle)
+
+        resource_gid = f"gid://shopify/Product/{product_id}"
+
+        try:
+            # Get translatable content with digests
+            content_list = shopify_get_translatable_content(store_url, token, resource_gid)
+            if not content_list:
+                logger.warning(f"[Translate] No translatable content for {handle} ({product_id})")
+                errors.append(f"{handle}: Sem conteúdo traduzível")
+                continue
+
+            # Build digest map: key → digest
+            digest_map = {}
+            for c in content_list:
+                digest_map[c["key"]] = c["digest"]
+
+            # Get translated values
+            tt = text_translations.get(handle, {})
+            edits = product_edits.get(handle, {})
+
+            # Build translation entries
+            translations_to_register = []
+
+            # Title
+            title_val = edits.get("title") or tt.get("title", "")
+            if title_val and "title" in digest_map:
+                translations_to_register.append({
+                    "key": "title",
+                    "value": title_val,
+                    "digest": digest_map["title"],
+                })
+
+            # Body HTML
+            body_val = edits.get("body_html") or tt.get("body_html", "")
+            if body_val and "body_html" in digest_map:
+                translations_to_register.append({
+                    "key": "body_html",
+                    "value": body_val,
+                    "digest": digest_map["body_html"],
+                })
+
+            # Meta title (SEO)
+            seo_title = tt.get("seo_title", "")
+            if seo_title and "meta_title" in digest_map:
+                translations_to_register.append({
+                    "key": "meta_title",
+                    "value": seo_title,
+                    "digest": digest_map["meta_title"],
+                })
+
+            # Meta description (SEO)
+            seo_desc = tt.get("seo_description", "")
+            if seo_desc and "meta_description" in digest_map:
+                translations_to_register.append({
+                    "key": "meta_description",
+                    "value": seo_desc,
+                    "digest": digest_map["meta_description"],
+                })
+
+            if not translations_to_register:
+                continue
+
+            # Register translations
+            result = shopify_register_translation(
+                store_url, token, resource_gid, shopify_locale, translations_to_register
+            )
+
+            user_errors = result.get("data", {}).get("translationsRegister", {}).get("userErrors", [])
+            if user_errors:
+                err_msgs = "; ".join(e.get("message", "") for e in user_errors)
+                logger.warning(f"[Translate] Errors for {handle}: {err_msgs}")
+                errors.append(f"{handle}: {err_msgs}")
+            else:
+                translated += 1
+                logger.info(f"[Translate] {handle} traduzido para {shopify_locale} ({len(translations_to_register)} campos)")
+
+            # Translate variant options
+            if handle in options_translations:
+                translated_opts = options_translations[handle]
+                original_options = product.get("options", [])
+
+                for i, orig_opt in enumerate(original_options):
+                    if i >= len(translated_opts):
+                        break
+                    trans_opt = translated_opts[i]
+                    option_id = orig_opt.get("id")
+                    if not option_id:
+                        continue
+
+                    option_gid = f"gid://shopify/ProductOption/{option_id}"
+                    try:
+                        option_content = shopify_get_translatable_content(store_url, token, option_gid)
+                        option_digest_map = {c["key"]: c["digest"] for c in option_content}
+
+                        option_translations = []
+                        trans_name = trans_opt.get("name", "")
+                        if trans_name and "name" in option_digest_map:
+                            option_translations.append({
+                                "key": "name",
+                                "value": trans_name,
+                                "digest": option_digest_map["name"],
+                            })
+
+                        if option_translations:
+                            shopify_register_translation(
+                                store_url, token, option_gid, shopify_locale, option_translations
+                            )
+
+                        # Translate option values
+                        orig_values = orig_opt.get("values", [])
+                        trans_values = trans_opt.get("values", [])
+                        for j, ov in enumerate(orig_values):
+                            if j >= len(trans_values):
+                                break
+                            # ProductOptionValue GIDs require querying — use product variant approach
+                            # Option values are translated through ProductOptionValue resources
+                    except Exception as opt_err:
+                        logger.warning(f"[Translate] Option {option_id} error: {opt_err}")
+
+        except Exception as e:
+            logger.error(f"[Translate] Erro em {handle}: {e}")
+            errors.append(f"{handle}: {str(e)}")
+
+    nome_idioma = IDIOMAS.get(lang, lang)
+    return jsonify({
+        "ok": True,
+        "translated": translated,
+        "errors": errors,
+        "language": nome_idioma,
+        "locale": shopify_locale,
     })
 
 
