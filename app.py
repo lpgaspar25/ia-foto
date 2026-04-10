@@ -1961,7 +1961,17 @@ def _extract_product_handle(raw_url: str) -> Optional[str]:
     raw_url = raw_url.replace("https://", "").replace("http://", "").rstrip("/")
     # Match patterns like: store.com/products/handle or store.com/collections/xxx/products/handle
     m = re.search(r"/products/([^/?#]+)", "/" + raw_url)
-    return m.group(1) if m else None
+    if m:
+        return m.group(1)
+    # Match direct path like: store.com/product-slug (no /products/ prefix)
+    # Only if there's a single path segment (not /collections/ etc.)
+    parts = raw_url.split("/", 1)
+    if len(parts) == 2 and parts[1]:
+        path = parts[1].strip("/")
+        # Single segment or ends with a hash-like suffix — likely a product page
+        if "/" not in path and path and not path.startswith(("collections", "pages", "blogs", "cart", "account", "admin", "search")):
+            return path
+    return None
 
 
 @app.route("/shopify/copiar", methods=["POST"])
@@ -2011,13 +2021,39 @@ def shopify_copiar():
         all_products = []
 
         if product_handle:
-            # Single product by handle
+            # Single product by handle — try /products/handle.json first
             url = f"https://{store_domain}/products/{product_handle}.json"
             resp = http_requests.get(url, timeout=30)
-            resp.raise_for_status()
-            product = resp.json().get("product")
-            if product:
-                all_products.append(product)
+            if resp.status_code == 200:
+                product = resp.json().get("product")
+                if product:
+                    all_products.append(product)
+            else:
+                # Some stores use custom URLs — try scraping the page for product JSON
+                logger.info(f"[Copiar] /products/{product_handle}.json returned {resp.status_code}, trying page scrape")
+                page_url = f"https://{store_domain}/{product_handle}"
+                page_resp = http_requests.get(page_url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+                if page_resp.status_code == 200:
+                    # Try to find product JSON in the page (Shopify embeds it)
+                    page_text = page_resp.text
+                    # Look for /products/real-handle pattern in the page
+                    handle_match = re.search(r'/products/([a-zA-Z0-9_-]+)(?:\.js|\.json|")', page_text)
+                    if handle_match:
+                        real_handle = handle_match.group(1)
+                        url2 = f"https://{store_domain}/products/{real_handle}.json"
+                        resp2 = http_requests.get(url2, timeout=30)
+                        if resp2.status_code == 200:
+                            product = resp2.json().get("product")
+                            if product:
+                                all_products.append(product)
+                    # Fallback: try .js endpoint
+                    if not all_products:
+                        js_url = f"https://{store_domain}/products/{product_handle}.js"
+                        js_resp = http_requests.get(js_url, timeout=30)
+                        if js_resp.status_code == 200:
+                            product = js_resp.json()
+                            if product and product.get("title"):
+                                all_products.append(product)
         else:
             # All products from store
             page = 1
