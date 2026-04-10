@@ -2554,6 +2554,42 @@
                     window.history.replaceState({}, '', '/');
                 });
             }
+
+            // Check if arriving from browser extension with product data
+            const extTitle = params.get('ext_title');
+            if (extTitle) {
+                const extDesc = params.get('ext_description') || '';
+                const extImages = params.get('ext_images') || '';
+                const extSource = params.get('ext_source') || '';
+
+                // Switch to Shopify copy mode
+                setTimeout(() => {
+                    const shopifyBtn = document.querySelector('[onclick*="setSource(\'shopify\')"]');
+                    if (shopifyBtn) shopifyBtn.click();
+
+                    // Fill manual form fields
+                    setTimeout(() => {
+                        document.getElementById('manualTitle').value = extTitle;
+                        document.getElementById('manualDescription').value = extDesc;
+                        document.getElementById('manualImageUrls').value = extImages;
+                        if (extSource) {
+                            document.getElementById('shopifySourceUrl').value = extSource;
+                        }
+                        // Show the manual form
+                        document.getElementById('manualProductForm').style.display = 'block';
+
+                        // Show status message
+                        const statusEl = document.getElementById('shopifyConnectStatus');
+                        statusEl.style.display = 'block';
+                        statusEl.style.background = 'rgba(16,185,129,0.1)';
+                        statusEl.style.color = '#10b981';
+                        statusEl.textContent = 'Produto recebido da extensao! Confira os dados e clique em "Processar Produto Manual".';
+                    }, 200);
+                }, 100);
+
+                // Clean URL
+                window.history.replaceState({}, '', '/?source=shopify');
+            }
         });
 
         // ─── Format Toggle ───
