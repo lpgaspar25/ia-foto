@@ -60,6 +60,13 @@ except ImportError:
     GEMINI_AVAILABLE = False
     print("Aviso: google-genai não instalado. Substituição de produto indisponível.")
 
+try:
+    import cloudscraper
+    CLOUDSCRAPER_AVAILABLE = True
+except ImportError:
+    CLOUDSCRAPER_AVAILABLE = False
+    print("Aviso: cloudscraper não instalado. Bypass anti-bot indisponível.")
+
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB max upload
 app.config["PREFERRED_URL_SCHEME"] = "https"
@@ -1991,26 +1998,29 @@ def _scrape_product_from_page(page_url: str) -> Optional[dict]:
     }
 
     try:
-        # Some sites have bot challenges — try with a session and follow redirects
-        sess = http_requests.Session()
+        from urllib.parse import urljoin, urlparse
+
+        # Use cloudscraper to bypass anti-bot challenges (Cloudflare, etc.)
+        if CLOUDSCRAPER_AVAILABLE:
+            sess = cloudscraper.create_scraper(browser={"browser": "chrome", "platform": "windows"})
+        else:
+            sess = http_requests.Session()
+
         resp = sess.get(page_url, headers=headers, timeout=30, allow_redirects=True)
 
-        # Handle challenge pages (POST-based anti-bot)
+        # Handle challenge pages (POST-based anti-bot) as fallback
         if "challenge" in resp.text.lower() and resp.status_code == 200 and len(resp.text) < 3000:
-            # Try submitting the challenge form
             soup_challenge = BeautifulSoup(resp.text, "html.parser")
             form = soup_challenge.find("form")
             if form:
                 action = form.get("action", page_url)
                 if not action.startswith("http"):
-                    from urllib.parse import urljoin
                     action = urljoin(page_url, action)
                 form_data = {}
                 for inp in form.find_all("input"):
                     name = inp.get("name")
                     if name:
                         form_data[name] = inp.get("value", "")
-                # Fill client_data if present
                 if "client_data" in form_data:
                     form_data["client_data"] = json.dumps({"time": 500, "ua": headers["User-Agent"], "w": 1920, "h": 1080, "lang": "pt-BR", "cores": 8})
                 resp = sess.post(action, data=form_data, headers=headers, timeout=30, allow_redirects=True)
@@ -2104,13 +2114,11 @@ def _scrape_product_from_page(page_url: str) -> Optional[dict]:
                     src = img_el.get("src") or img_el.get("data-src") or img_el.get("data-lazy-src") or ""
                     if src and src not in existing and not src.endswith(".svg"):
                         if not src.startswith("http"):
-                            from urllib.parse import urljoin
                             src = urljoin(page_url, src)
                         product.setdefault("images", []).append({"src": src})
                         existing.add(src)
 
         # Generate a handle from the URL
-        from urllib.parse import urlparse
         parsed = urlparse(page_url)
         path = parsed.path.strip("/").split("/")[-1] if parsed.path else ""
         product["handle"] = path or product.get("title", "").lower().replace(" ", "-")[:80]
@@ -2141,6 +2149,51 @@ def _is_shopify_store(domain: str) -> bool:
         return resp.status_code == 200
     except Exception:
         return False
+
+
+def _try_woocommerce_api(domain: str, product_slug: str = "") -> list[dict]:
+    """Try to fetch products from WooCommerce Store API (no auth needed)."""
+    products = []
+    try:
+        if product_slug:
+            url = f"https://{domain}/wp-json/wc/store/v1/products?slug={product_slug}"
+        else:
+            url = f"https://{domain}/wp-json/wc/store/v1/products?per_page=100"
+        resp = http_requests.get(url, timeout=15)
+        if resp.status_code != 200:
+            return []
+
+        wc_products = resp.json()
+        if not isinstance(wc_products, list):
+            return []
+
+        for wc in wc_products:
+            product = {
+                "title": wc.get("name", ""),
+                "handle": wc.get("slug", ""),
+                "body_html": wc.get("description", "") or wc.get("short_description", ""),
+                "tags": ", ".join(t.get("name", "") for t in wc.get("tags", [])),
+                "vendor": domain,
+                "product_type": ", ".join(c.get("name", "") for c in wc.get("categories", [])),
+                "images": [{"src": img.get("src", "")} for img in wc.get("images", []) if img.get("src")],
+                "variants": [],
+            }
+            # Price
+            prices = wc.get("prices", {})
+            price = prices.get("price", "0")
+            # WooCommerce returns price in cents
+            try:
+                price_val = str(int(price) / 100) if price.isdigit() and int(price) > 100 else price
+            except (ValueError, TypeError):
+                price_val = price
+            product["variants"].append({
+                "price": price_val,
+                "option1": "Default",
+            })
+            products.append(product)
+    except Exception as e:
+        logger.debug(f"[WooCommerce] API failed for {domain}: {e}")
+    return products
 
 
 # ─── Rotas Shopify API ───────────────────────────────────
@@ -2273,6 +2326,12 @@ def shopify_copiar():
                         break
         except Exception as e:
             logger.warning(f"[Copiar] Shopify API failed: {e}")
+
+    # ── Try WooCommerce Store API ──
+    if not all_products:
+        logger.info(f"[Copiar] Trying WooCommerce API for {store_domain}")
+        wc_products = _try_woocommerce_api(store_domain, product_handle or "")
+        all_products.extend(wc_products)
 
     # ── Fallback: Generic HTML scraping for any platform ──
     if not all_products:
