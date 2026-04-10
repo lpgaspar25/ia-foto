@@ -1791,13 +1791,19 @@
                                 </div>
                             </div>
                             <div id="shopifyLangSelector" class="csv-idiomas-grid"></div>
+
+                            <!-- Botão Translate & Adapt (multi-idioma, fora do editArea) -->
+                            <button class="btn-csv" id="btnTraduzir" onclick="traduzirShopifyMulti()" style="background:#6366f1; display:none; margin-top:1rem;">
+                                Enviar Traduções (Translate &amp; Adapt)
+                            </button>
+                            <div id="translateStatus" style="display:none; margin-top:0.8rem; padding:0.8rem; border-radius:var(--radius-sm); font-size:0.85rem;"></div>
                         </div>
 
-                        <!-- Editar Produtos (aparece após selecionar idioma) -->
+                        <!-- Editar Produtos (aparece após selecionar idioma - modo Novo Produto) -->
                         <div id="shopifyEditArea" style="display:none;">
 
                             <!-- Modelo de Tema -->
-                            <div class="card">
+                            <div class="card" id="templateCard">
                                 <h2>Modelo de Tema <span style="font-weight:400; color:#666; text-transform:none;">(opcional)</span></h2>
                                 <div class="shopify-field">
                                     <label>Template Suffix</label>
@@ -1812,7 +1818,7 @@
                             </div>
 
                             <!-- Coleção -->
-                            <div class="card">
+                            <div class="card" id="collectionCard">
                                 <h2>Adicionar à Coleção <span style="font-weight:400; color:#666; text-transform:none;">(opcional)</span></h2>
                                 <select id="shopifyCollectionSelect" style="width:100%; padding:0.75rem 1rem; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary); font-size:0.9rem;">
                                     <option value="">Nenhuma coleção</option>
@@ -1836,9 +1842,6 @@
                             <button class="btn-csv" id="btnPublicar" onclick="publicarShopify()" style="background:#059669;">
                                 Publicar na Shopify
                             </button>
-                            <button class="btn-csv" id="btnTraduzir" onclick="traduzirShopify()" style="background:#6366f1; display:none;">
-                                Enviar Tradução (Translate &amp; Adapt)
-                            </button>
                             <div id="shopifyPublishStatus" style="display:none; margin-top:1rem; padding:0.8rem; border-radius:var(--radius-sm); font-size:0.85rem;">
                             </div>
                         </div>
@@ -1858,6 +1861,7 @@
         let currentUser = {{ user | tojson if user else 'null' }};
         let savedStores = [];
         let publishMode = 'new'; // 'new' or 'translate'
+        let selectedTranslateLangs = new Set(); // multi-select for translate mode
 
         // ─── Auth ───
         function openAuthModal(form) {
@@ -3037,16 +3041,42 @@
         let shopifyPreviewProducts = [];
 
         function selectPublishLang(lang) {
-            selectedPublishLang = lang;
-            document.querySelectorAll('.publish-lang-btn').forEach(btn => {
-                btn.classList.toggle('selected', btn.dataset.lang === lang);
-            });
-
-            if (lang) {
-                document.getElementById('shopifyEditArea').style.display = 'block';
-                loadShopifyPublishData(lang);
-            } else {
+            if (publishMode === 'translate') {
+                // Multi-select mode for Translate & Adapt
+                if (selectedTranslateLangs.has(lang)) {
+                    selectedTranslateLangs.delete(lang);
+                } else {
+                    selectedTranslateLangs.add(lang);
+                }
+                document.querySelectorAll('.publish-lang-btn').forEach(btn => {
+                    btn.classList.toggle('selected', selectedTranslateLangs.has(btn.dataset.lang));
+                });
+                // Show/hide translate button
+                const btnTraduzir = document.getElementById('btnTraduzir');
+                if (selectedTranslateLangs.size > 0) {
+                    const count = selectedTranslateLangs.size;
+                    btnTraduzir.style.display = '';
+                    btnTraduzir.innerHTML = count > 1
+                        ? `Enviar Traduções (${count} idiomas)`
+                        : `Enviar Tradução (Translate &amp; Adapt)`;
+                } else {
+                    btnTraduzir.style.display = 'none';
+                }
+                // Hide edit area in translate mode
                 document.getElementById('shopifyEditArea').style.display = 'none';
+            } else {
+                // Single-select mode for Novo Produto
+                selectedPublishLang = lang;
+                selectedTranslateLangs.clear();
+                document.querySelectorAll('.publish-lang-btn').forEach(btn => {
+                    btn.classList.toggle('selected', btn.dataset.lang === lang);
+                });
+                if (lang) {
+                    document.getElementById('shopifyEditArea').style.display = 'block';
+                    loadShopifyPublishData(lang);
+                } else {
+                    document.getElementById('shopifyEditArea').style.display = 'none';
+                }
             }
         }
 
@@ -3247,9 +3277,15 @@
             const btnNew = document.getElementById('publishModeNew');
             const btnTranslate = document.getElementById('publishModeTranslate');
             const hint = document.getElementById('publishModeHint');
-            const btnPublicar = document.getElementById('btnPublicar');
             const btnTraduzir = document.getElementById('btnTraduzir');
-            const templateCard = document.querySelector('#shopifyEditArea .card:has(#shopifyTemplateSelect)');
+
+            // Reset language selections
+            selectedPublishLang = '';
+            selectedTranslateLangs.clear();
+            document.querySelectorAll('.publish-lang-btn').forEach(btn => btn.classList.remove('selected'));
+            document.getElementById('shopifyEditArea').style.display = 'none';
+            btnTraduzir.style.display = 'none';
+            document.getElementById('translateStatus').style.display = 'none';
 
             if (mode === 'translate') {
                 btnNew.style.background = 'var(--bg-input)';
@@ -3258,10 +3294,7 @@
                 btnTranslate.style.background = '#6366f1';
                 btnTranslate.style.color = '#fff';
                 btnTranslate.style.border = 'none';
-                hint.textContent = 'Envia as traduções diretamente para o Translate & Adapt do Shopify. Não cria produtos novos.';
-                btnPublicar.style.display = 'none';
-                btnTraduzir.style.display = '';
-                if (templateCard) templateCard.style.display = 'none';
+                hint.textContent = 'Selecione os idiomas e envie as traduções para o Translate & Adapt. Não cria produtos novos.';
             } else {
                 btnNew.style.background = '#059669';
                 btnNew.style.color = '#fff';
@@ -3270,61 +3303,59 @@
                 btnTranslate.style.color = 'var(--text-secondary)';
                 btnTranslate.style.border = '1px solid var(--border)';
                 hint.textContent = 'Cria um novo produto com o conteúdo traduzido.';
-                btnPublicar.style.display = '';
-                btnTraduzir.style.display = 'none';
-                if (templateCard) templateCard.style.display = '';
             }
         }
 
-        async function traduzirShopify() {
-            if (!selectedPublishLang || !csvJobId) return;
+        async function traduzirShopifyMulti() {
+            if (selectedTranslateLangs.size === 0 || !csvJobId) return;
 
             const btn = document.getElementById('btnTraduzir');
-            const statusEl = document.getElementById('shopifyPublishStatus');
+            const statusEl = document.getElementById('translateStatus');
             const destStoreId = document.getElementById('publishDestStoreSelect').value;
             const productEdits = getProductEdits();
+
+            const langs = Array.from(selectedTranslateLangs);
+            const destStoreId = document.getElementById('publishDestStoreSelect').value;
 
             btn.disabled = true;
             btn.textContent = 'Enviando traduções...';
             statusEl.style.display = 'block';
             statusEl.style.background = 'var(--bg-input)';
             statusEl.style.color = 'var(--text-secondary)';
-            statusEl.textContent = `Enviando traduções (${selectedPublishLang.toUpperCase()}) via Translate & Adapt...`;
+            statusEl.textContent = `Enviando traduções para ${langs.length} idioma(s)...`;
 
-            try {
-                const resp = await fetch('/shopify/traduzir', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        job_id: csvJobId,
-                        lang: selectedPublishLang,
-                        product_edits: productEdits,
-                        dest_store_id: destStoreId ? parseInt(destStoreId) : null,
-                    }),
-                });
-                const data = await resp.json();
-
-                if (data.erro) {
-                    statusEl.style.background = 'rgba(239,68,68,0.1)';
-                    statusEl.style.color = '#ef4444';
-                    statusEl.textContent = data.erro;
-                } else {
-                    statusEl.style.background = 'rgba(99,102,241,0.1)';
-                    statusEl.style.color = '#6366f1';
-                    let msg = `Traduções enviadas para ${data.translated} produto(s) em ${data.language} (${data.locale}).`;
-                    if (data.errors && data.errors.length > 0) {
-                        msg += ` Erros: ${data.errors.join(', ')}`;
+            const results = [];
+            for (let i = 0; i < langs.length; i++) {
+                const lang = langs[i];
+                statusEl.textContent = `Enviando ${lang.toUpperCase()} (${i+1}/${langs.length})...`;
+                try {
+                    const resp = await fetch('/shopify/traduzir', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            job_id: csvJobId,
+                            lang: lang,
+                            product_edits: {},
+                            dest_store_id: destStoreId ? parseInt(destStoreId) : null,
+                        }),
+                    });
+                    const data = await resp.json();
+                    if (data.erro) {
+                        results.push(`${lang.toUpperCase()}: ${data.erro}`);
+                    } else {
+                        results.push(`${lang.toUpperCase()}: ${data.translated} produto(s) traduzido(s)`);
                     }
-                    statusEl.textContent = msg;
+                } catch (err) {
+                    results.push(`${lang.toUpperCase()}: Erro - ${err.message}`);
                 }
-            } catch (err) {
-                statusEl.style.background = 'rgba(239,68,68,0.1)';
-                statusEl.style.color = '#ef4444';
-                statusEl.textContent = 'Erro: ' + err.message;
             }
 
+            statusEl.style.background = 'rgba(99,102,241,0.1)';
+            statusEl.style.color = '#6366f1';
+            statusEl.innerHTML = results.map(r => `<div style="margin:0.2rem 0;">${r}</div>`).join('');
+
             btn.disabled = false;
-            btn.innerHTML = 'Enviar Tradução (Translate &amp; Adapt)';
+            btn.innerHTML = `Enviar Traduções (${langs.length} idiomas)`;
         }
 
         async function publicarShopify() {
