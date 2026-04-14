@@ -1828,7 +1828,14 @@ def shopify_graphql(store_url: str, token: str, query: str, variables: dict = No
         payload["variables"] = variables
     resp = http_requests.post(url, headers=headers, json=payload, timeout=60)
     resp.raise_for_status()
-    return resp.json()
+    data = resp.json()
+    # Surface top-level GraphQL errors (e.g. missing scope, throttling) so callers
+    # don't silently see an empty result and report "nothing to translate".
+    if isinstance(data, dict) and data.get("errors"):
+        msgs = "; ".join(e.get("message", "") for e in data["errors"] if isinstance(e, dict))
+        logger.error(f"[Shopify GraphQL] {msgs} | query={query[:80]}...")
+        raise RuntimeError(f"Shopify GraphQL: {msgs}")
+    return data
 
 
 def shopify_register_translation(store_url: str, token: str, resource_gid: str, locale: str, translations: list[dict]) -> dict:
@@ -3681,6 +3688,26 @@ def shopify_traduzir_existentes():
 
     results_by_lang = {}
     total_translated = 0
+
+    # Pre-flight: verify the access token has translation scope by
+    # querying translatableResource on the first product. If this fails,
+    # abort early with a clear message instead of retrying per-product.
+    if product_ids:
+        test_gid = f"gid://shopify/Product/{product_ids[0]}"
+        try:
+            shopify_get_translatable_content(store_url, token, test_gid)
+        except RuntimeError as e:
+            msg = str(e)
+            if "access denied" in msg.lower() or "not authorized" in msg.lower() or "scope" in msg.lower():
+                return jsonify({
+                    "erro": (
+                        "O token da loja destino não tem permissão para gerenciar traduções. "
+                        "Reinstale o app custom adicionando os scopes 'read_translations' e "
+                        "'write_translations' nas configurações da sua Shopify custom app."
+                    ),
+                    "detalhe": msg,
+                }), 403
+            return jsonify({"erro": f"Erro ao acessar API de traduções: {msg}"}), 500
 
     # Fetch full product data once
     products_data = {}

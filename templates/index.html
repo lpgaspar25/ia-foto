@@ -3222,6 +3222,12 @@
                     html += `<div style="margin-top:0.4rem;">${lang.toUpperCase()}: ${r.translated} traduzidos`;
                     if (r.errors && r.errors.length) {
                         html += ` <span style="color:#ef4444;">(${r.errors.length} erros)</span>`;
+                        html += `<ul style="margin:0.3rem 0 0.3rem 1.2rem; color:#f87171; font-size:0.78rem;">`;
+                        r.errors.forEach(e => {
+                            const safe = String(e).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            html += `<li>${safe}</li>`;
+                        });
+                        html += `</ul>`;
                     }
                     html += `</div>`;
                 });
