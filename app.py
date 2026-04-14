@@ -3384,13 +3384,35 @@ def shopify_traduzir():
     translated = 0
     errors = []
     seen_handles = set()
+    not_found = []
 
     for product in shopify_products:
         handle = product.get("handle", "")
         product_id = product.get("id")
-        if not handle or handle in seen_handles or not product_id:
+        if not handle or handle in seen_handles:
             continue
         seen_handles.add(handle)
+
+        # If product has no Shopify ID (scraped externally), try to find it by handle in dest store
+        if not product_id:
+            try:
+                lookup_url = f"https://{store_url}/admin/api/{SHOPIFY_API_VERSION}/products.json?handle={handle}"
+                lookup_resp = http_requests.get(
+                    lookup_url,
+                    headers={"X-Shopify-Access-Token": token},
+                    timeout=30,
+                )
+                if lookup_resp.status_code == 200:
+                    found = lookup_resp.json().get("products", [])
+                    if found:
+                        product_id = found[0].get("id")
+                        logger.info(f"[Translate] Produto '{handle}' encontrado na loja destino: id={product_id}")
+            except Exception as e:
+                logger.warning(f"[Translate] Erro ao buscar '{handle}' na loja destino: {e}")
+
+        if not product_id:
+            not_found.append(handle)
+            continue
 
         resource_gid = f"gid://shopify/Product/{product_id}"
 
@@ -3519,6 +3541,7 @@ def shopify_traduzir():
         "ok": True,
         "translated": translated,
         "errors": errors,
+        "not_found": not_found,
         "language": nome_idioma,
         "locale": shopify_locale,
     })

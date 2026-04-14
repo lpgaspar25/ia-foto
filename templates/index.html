@@ -3824,7 +3824,11 @@
                     if (data.erro) {
                         results.push(`${lang.toUpperCase()}: ${data.erro}`);
                     } else {
-                        results.push(`${lang.toUpperCase()}: ${data.translated} produto(s) traduzido(s)`);
+                        let line = `${lang.toUpperCase()}: ${data.translated} produto(s) traduzido(s)`;
+                        if (data.not_found && data.not_found.length > 0) {
+                            line += ` <span style="color:#f59e0b;">⚠ ${data.not_found.length} produto(s) não existe(m) na loja destino: ${data.not_found.join(', ')}. Publique-os primeiro (modo "Novo Produto") antes de aplicar traduções.</span>`;
+                        }
+                        results.push(line);
                     }
                 } catch (err) {
                     results.push(`${lang.toUpperCase()}: Erro - ${err.message}`);
