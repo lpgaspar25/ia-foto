@@ -860,6 +860,27 @@ def index():
     return render_template("index.html", idiomas=IDIOMAS, user=user)
 
 
+@app.route("/extension/download")
+def download_extension():
+    """Package the Chrome extension as a zip file for download."""
+    ext_dir = Path(__file__).parent / "extension"
+    if not ext_dir.exists():
+        return jsonify({"erro": "Extensão não encontrada"}), 404
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file in ext_dir.iterdir():
+            if file.is_file():
+                zf.write(file, arcname=file.name)
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name="image-tools-extension.zip",
+    )
+
+
 # ─── Auth Routes ─────────────────────────────────────────
 
 @app.route("/auth/register", methods=["POST"])
