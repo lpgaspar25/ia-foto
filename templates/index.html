@@ -1521,7 +1521,7 @@
             <!-- Fase 1: Upload CSV ou Conectar Loja -->
             <div class="csv-phase visible" id="csvPhase1">
 
-                <!-- Toggle: CSV Upload vs Shopify API -->
+                <!-- Toggle: CSV Upload vs Shopify API vs Existing Products -->
                 <div class="card">
                     <div class="csv-source-toggle">
                         <button class="csv-source-btn active" id="srcBtnCsv" onclick="switchCsvSource('csv')">
@@ -1529,6 +1529,9 @@
                         </button>
                         <button class="csv-source-btn" id="srcBtnShopify" onclick="switchCsvSource('shopify')">
                             🏪 Copiar de Loja Shopify
+                        </button>
+                        <button class="csv-source-btn" id="srcBtnExisting" onclick="switchCsvSource('existing')">
+                            🌐 Traduzir Produtos Existentes
                         </button>
                     </div>
                 </div>
@@ -1680,6 +1683,56 @@
                             </div>
                         </div>
 
+                    </div>
+                </div>
+
+                <!-- Opção C: Traduzir Produtos Existentes -->
+                <div id="csvSourceExisting" style="display:none;">
+
+                    <div id="existingLoginNotice" class="card" style="display:none; text-align:center;">
+                        <p style="color:var(--text-secondary); font-size:0.9rem; margin-bottom:1rem;">
+                            Faça login para traduzir produtos da sua loja.
+                        </p>
+                        <button class="user-bar-btn primary" onclick="openAuthModal('login')" style="padding:0.7rem 2rem; font-size:0.9rem;">
+                            Entrar / Criar Conta
+                        </button>
+                    </div>
+
+                    <div id="existingLoggedInArea">
+                        <div class="card">
+                            <h2>Selecione a Loja</h2>
+                            <p style="color:var(--text-secondary); font-size:0.82rem; margin-bottom:0.8rem;">
+                                Escolha a loja cujos produtos você quer traduzir.
+                            </p>
+                            <div id="existingStoreSelector" style="display:flex; flex-direction:column; gap:0.5rem;"></div>
+                            <div id="existingNoStores" style="display:none; color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0;">
+                                Nenhuma loja conectada. Conecte uma loja primeiro na aba "Lojas".
+                            </div>
+                        </div>
+
+                        <div class="card" id="existingProductsCard" style="display:none;">
+                            <h2>Produtos da Loja <span id="existingProductCount" style="font-weight:400; color:var(--text-secondary); font-size:0.85rem;"></span></h2>
+                            <div style="display:flex; gap:0.5rem; margin-bottom:0.8rem; flex-wrap:wrap;">
+                                <input type="text" id="existingProductSearch" placeholder="Filtrar produtos..." oninput="filterExistingProducts()" style="flex:1; min-width:180px; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); padding:0.5rem 0.7rem; color:var(--text-primary); font-size:0.85rem;">
+                                <button class="btn-csv" onclick="selectAllExistingProducts(true)" style="background:var(--bg-elevated); color:var(--text-secondary); border:1px solid var(--border); padding:0.5rem 1rem; font-size:0.8rem;">Selecionar todos</button>
+                                <button class="btn-csv" onclick="selectAllExistingProducts(false)" style="background:var(--bg-elevated); color:var(--text-secondary); border:1px solid var(--border); padding:0.5rem 1rem; font-size:0.8rem;">Limpar</button>
+                            </div>
+                            <div id="existingProductsList" style="max-height:400px; overflow-y:auto; display:flex; flex-direction:column; gap:0.4rem;"></div>
+                        </div>
+
+                        <div class="card" id="existingLangsCard" style="display:none;">
+                            <h2>Idiomas de Destino</h2>
+                            <p style="color:var(--text-secondary); font-size:0.82rem; margin-bottom:0.8rem;">
+                                As traduções serão aplicadas via Translate & Adapt.
+                            </p>
+                            <div id="existingLangsGrid" class="csv-idiomas-grid"></div>
+                        </div>
+
+                        <button class="btn-csv" id="btnTraduzirExistentes" onclick="traduzirExistentes()" disabled style="background:#6366f1; margin-top:1rem;">
+                            Traduzir e Aplicar
+                        </button>
+
+                        <div id="existingStatus" style="display:none; margin-top:0.8rem; padding:0.8rem; border-radius:var(--radius-sm); font-size:0.85rem;"></div>
                     </div>
                 </div>
 
@@ -2946,8 +2999,233 @@
             csvSourceMode = mode;
             document.getElementById('srcBtnCsv').classList.toggle('active', mode === 'csv');
             document.getElementById('srcBtnShopify').classList.toggle('active', mode === 'shopify');
+            const btnExisting = document.getElementById('srcBtnExisting');
+            if (btnExisting) btnExisting.classList.toggle('active', mode === 'existing');
             document.getElementById('csvSourceUpload').style.display = mode === 'csv' ? '' : 'none';
             document.getElementById('csvSourceShopify').style.display = mode === 'shopify' ? '' : 'none';
+            const csvExisting = document.getElementById('csvSourceExisting');
+            if (csvExisting) {
+                csvExisting.style.display = mode === 'existing' ? '' : 'none';
+                if (mode === 'existing') initExistingMode();
+            }
+        }
+
+        // ─── Traduzir Produtos Existentes ───
+        let existingSelectedStore = null;
+        let existingAllProducts = [];
+        let existingSelectedProducts = new Set();
+        let existingSelectedLangs = new Set();
+
+        function initExistingMode() {
+            const loginNotice = document.getElementById('existingLoginNotice');
+            const mainArea = document.getElementById('existingLoggedInArea');
+            if (!currentUser) {
+                loginNotice.style.display = '';
+                mainArea.style.display = 'none';
+                return;
+            }
+            loginNotice.style.display = 'none';
+            mainArea.style.display = '';
+            // Load stores if not already loaded
+            if (typeof savedStores === 'undefined' || !savedStores || savedStores.length === 0) {
+                loadSavedStores().then(() => renderExistingStores());
+            } else {
+                renderExistingStores();
+            }
+            renderExistingLangs();
+        }
+
+        function renderExistingStores() {
+            const list = document.getElementById('existingStoreSelector');
+            const empty = document.getElementById('existingNoStores');
+            const stores = (typeof savedStores !== 'undefined' && savedStores) ? savedStores : [];
+            list.innerHTML = '';
+            if (!stores.length) {
+                empty.style.display = '';
+                return;
+            }
+            empty.style.display = 'none';
+            stores.forEach(s => {
+                const el = document.createElement('div');
+                el.className = 'dest-store-option';
+                el.style.cssText = 'padding:0.7rem 1rem; border:1px solid var(--border); border-radius:var(--radius-sm); cursor:pointer; display:flex; justify-content:space-between; align-items:center;';
+                el.dataset.storeId = s.id;
+                el.innerHTML = `<div><strong>${s.name || s.store_url}</strong><div style="font-size:0.75rem; color:var(--text-muted);">${s.store_url}</div></div>`;
+                el.onclick = () => selectExistingStore(s.id);
+                if (existingSelectedStore === s.id) {
+                    el.style.borderColor = '#6366f1';
+                    el.style.background = 'rgba(99,102,241,0.08)';
+                }
+                list.appendChild(el);
+            });
+        }
+
+        async function selectExistingStore(storeId) {
+            existingSelectedStore = storeId;
+            renderExistingStores();
+            existingSelectedProducts.clear();
+
+            const card = document.getElementById('existingProductsCard');
+            card.style.display = '';
+            const list = document.getElementById('existingProductsList');
+            list.innerHTML = '<div style="color:var(--text-muted); padding:1rem;">Carregando produtos...</div>';
+            document.getElementById('existingProductCount').textContent = '';
+
+            try {
+                const resp = await fetch('/shopify/list-my-products', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ store_id: storeId }),
+                });
+                const data = await resp.json();
+                if (data.erro) {
+                    list.innerHTML = `<div style="color:#ef4444; padding:1rem;">${data.erro}</div>`;
+                    return;
+                }
+                existingAllProducts = data.products || [];
+                document.getElementById('existingProductCount').textContent = `(${existingAllProducts.length})`;
+                renderExistingProducts();
+                document.getElementById('existingLangsCard').style.display = '';
+                updateTraduzirExistentesBtn();
+            } catch (err) {
+                list.innerHTML = `<div style="color:#ef4444; padding:1rem;">Erro: ${err.message}</div>`;
+            }
+        }
+
+        function renderExistingProducts() {
+            const list = document.getElementById('existingProductsList');
+            const search = document.getElementById('existingProductSearch').value.toLowerCase();
+            list.innerHTML = '';
+            const filtered = existingAllProducts.filter(p =>
+                !search || (p.title || '').toLowerCase().includes(search) || (p.handle || '').toLowerCase().includes(search)
+            );
+            if (!filtered.length) {
+                list.innerHTML = '<div style="color:var(--text-muted); padding:1rem;">Nenhum produto encontrado.</div>';
+                return;
+            }
+            filtered.forEach(p => {
+                const el = document.createElement('label');
+                el.style.cssText = 'display:flex; align-items:center; gap:0.7rem; padding:0.5rem 0.7rem; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); cursor:pointer;';
+                const checked = existingSelectedProducts.has(p.id) ? 'checked' : '';
+                el.innerHTML = `
+                    <input type="checkbox" ${checked} onchange="toggleExistingProduct(${p.id}, this.checked)">
+                    ${p.image ? `<img src="${p.image}" style="width:36px; height:36px; object-fit:cover; border-radius:4px;">` : '<div style="width:36px; height:36px; background:#222; border-radius:4px;"></div>'}
+                    <div style="flex:1; min-width:0;">
+                        <div style="color:var(--text-primary); font-size:0.85rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${p.title}</div>
+                        <div style="color:var(--text-muted); font-size:0.75rem;">${p.handle}</div>
+                    </div>
+                `;
+                list.appendChild(el);
+            });
+        }
+
+        function filterExistingProducts() {
+            renderExistingProducts();
+        }
+
+        function toggleExistingProduct(id, checked) {
+            if (checked) existingSelectedProducts.add(id);
+            else existingSelectedProducts.delete(id);
+            updateTraduzirExistentesBtn();
+        }
+
+        function selectAllExistingProducts(sel) {
+            const search = document.getElementById('existingProductSearch').value.toLowerCase();
+            const filtered = existingAllProducts.filter(p =>
+                !search || (p.title || '').toLowerCase().includes(search) || (p.handle || '').toLowerCase().includes(search)
+            );
+            filtered.forEach(p => {
+                if (sel) existingSelectedProducts.add(p.id);
+                else existingSelectedProducts.delete(p.id);
+            });
+            renderExistingProducts();
+            updateTraduzirExistentesBtn();
+        }
+
+        function renderExistingLangs() {
+            const grid = document.getElementById('existingLangsGrid');
+            const idiomas = {'en':'🇺🇸 English','es':'🇪🇸 Español','fr':'🇫🇷 Français','it':'🇮🇹 Italiano','de':'🇩🇪 Deutsch','pt':'🇧🇷 Português','ja':'🇯🇵 日本語','zh':'🇨🇳 中文','ar':'🇸🇦 العربية','ru':'🇷🇺 Русский'};
+            grid.innerHTML = '';
+            Object.entries(idiomas).forEach(([code, label]) => {
+                const el = document.createElement('div');
+                el.className = 'csv-idioma-item' + (existingSelectedLangs.has(code) ? ' selected' : '');
+                el.style.cssText = 'padding:0.6rem 1rem; border:1px solid var(--border); border-radius:var(--radius-sm); cursor:pointer; text-align:center; font-size:0.85rem;';
+                if (existingSelectedLangs.has(code)) {
+                    el.style.borderColor = '#6366f1';
+                    el.style.background = 'rgba(99,102,241,0.1)';
+                }
+                el.textContent = label;
+                el.onclick = () => toggleExistingLang(code);
+                grid.appendChild(el);
+            });
+        }
+
+        function toggleExistingLang(code) {
+            if (existingSelectedLangs.has(code)) existingSelectedLangs.delete(code);
+            else existingSelectedLangs.add(code);
+            renderExistingLangs();
+            updateTraduzirExistentesBtn();
+        }
+
+        function updateTraduzirExistentesBtn() {
+            const btn = document.getElementById('btnTraduzirExistentes');
+            const ok = existingSelectedStore && existingSelectedProducts.size > 0 && existingSelectedLangs.size > 0;
+            btn.disabled = !ok;
+            if (ok) {
+                btn.textContent = `Traduzir ${existingSelectedProducts.size} produto(s) em ${existingSelectedLangs.size} idioma(s)`;
+            } else {
+                btn.textContent = 'Traduzir e Aplicar';
+            }
+        }
+
+        async function traduzirExistentes() {
+            const btn = document.getElementById('btnTraduzirExistentes');
+            const statusEl = document.getElementById('existingStatus');
+
+            btn.disabled = true;
+            const originalText = btn.textContent;
+            btn.textContent = 'Traduzindo... pode demorar alguns minutos';
+            statusEl.style.display = 'block';
+            statusEl.style.background = 'var(--bg-input)';
+            statusEl.style.color = 'var(--text-secondary)';
+            statusEl.textContent = 'Enviando para tradução... isso pode levar 1-3 minutos por produto.';
+
+            try {
+                const resp = await fetch('/shopify/traduzir-existentes', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        store_id: existingSelectedStore,
+                        product_ids: Array.from(existingSelectedProducts),
+                        langs: Array.from(existingSelectedLangs),
+                    }),
+                });
+                const data = await resp.json();
+                if (data.erro) {
+                    statusEl.style.background = 'rgba(239,68,68,0.1)';
+                    statusEl.style.color = '#ef4444';
+                    statusEl.textContent = data.erro;
+                    return;
+                }
+                statusEl.style.background = 'rgba(16,185,129,0.1)';
+                statusEl.style.color = '#10b981';
+                let html = `<strong>${data.total_translated} tradução(ões) aplicada(s) com sucesso!</strong>`;
+                Object.entries(data.by_language || {}).forEach(([lang, r]) => {
+                    html += `<div style="margin-top:0.4rem;">${lang.toUpperCase()}: ${r.translated} traduzidos`;
+                    if (r.errors && r.errors.length) {
+                        html += ` <span style="color:#ef4444;">(${r.errors.length} erros)</span>`;
+                    }
+                    html += `</div>`;
+                });
+                statusEl.innerHTML = html;
+            } catch (err) {
+                statusEl.style.background = 'rgba(239,68,68,0.1)';
+                statusEl.style.color = '#ef4444';
+                statusEl.textContent = 'Erro: ' + err.message;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
         }
 
         // ─── Shopify Copy from Source ───

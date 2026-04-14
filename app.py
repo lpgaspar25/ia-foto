@@ -3524,6 +3524,238 @@ def shopify_traduzir():
     })
 
 
+# ─── Traduzir Produtos Existentes (da loja do usuário) ───
+
+@app.route("/shopify/list-my-products", methods=["POST"])
+@login_required_api
+def shopify_list_my_products():
+    """Lista produtos de uma loja conectada do usuário."""
+    data = request.get_json() or {}
+    store_id = data.get("store_id")
+
+    if not store_id:
+        return jsonify({"erro": "store_id obrigatório"}), 400
+
+    owner_id = get_owner_id(session["user_id"])
+    conn = get_db()
+    store = conn.execute(
+        "SELECT store_url, access_token FROM shopify_stores WHERE id = ? AND user_id = ?",
+        (store_id, owner_id)
+    ).fetchone()
+    conn.close()
+
+    if not store or not store["access_token"]:
+        return jsonify({"erro": "Loja não encontrada ou sem token"}), 404
+
+    store_url = store["store_url"]
+    token = store["access_token"]
+
+    # Fetch products via Admin API
+    products = []
+    try:
+        page_info = None
+        while True:
+            if page_info:
+                url = f"https://{store_url}/admin/api/{SHOPIFY_API_VERSION}/products.json?limit=250&page_info={page_info}"
+            else:
+                url = f"https://{store_url}/admin/api/{SHOPIFY_API_VERSION}/products.json?limit=250"
+
+            resp = http_requests.get(url, headers={"X-Shopify-Access-Token": token}, timeout=30)
+            if resp.status_code != 200:
+                logger.warning(f"[ListMyProducts] status {resp.status_code}: {resp.text[:200]}")
+                break
+
+            batch = resp.json().get("products", [])
+            for p in batch:
+                products.append({
+                    "id": p.get("id"),
+                    "title": p.get("title", ""),
+                    "handle": p.get("handle", ""),
+                    "body_html": p.get("body_html", "") or "",
+                    "image": (p.get("image") or {}).get("src", "") if p.get("image") else "",
+                    "options": p.get("options", []),
+                    "tags": p.get("tags", "") or "",
+                })
+
+            # Parse Link header for pagination
+            link = resp.headers.get("Link", "")
+            next_match = re.search(r'<[^>]*page_info=([^&>]+)[^>]*>;\s*rel="next"', link)
+            if next_match:
+                page_info = next_match.group(1)
+            else:
+                break
+
+            if len(products) > 2000:
+                break
+    except Exception as e:
+        logger.error(f"[ListMyProducts] erro: {e}")
+        return jsonify({"erro": f"Erro ao buscar produtos: {str(e)}"}), 500
+
+    return jsonify({"products": products, "count": len(products)})
+
+
+@app.route("/shopify/traduzir-existentes", methods=["POST"])
+@login_required_api
+def shopify_traduzir_existentes():
+    """Traduz produtos existentes da loja do usuário e aplica via Translate & Adapt."""
+    data = request.get_json() or {}
+    store_id = data.get("store_id")
+    product_ids = data.get("product_ids", [])
+    langs = data.get("langs", [])
+    marca_de = (data.get("marca_de") or "").strip()
+    marca_para = (data.get("marca_para") or "").strip()
+
+    if not store_id or not product_ids or not langs:
+        return jsonify({"erro": "store_id, product_ids e langs obrigatórios"}), 400
+
+    owner_id = get_owner_id(session["user_id"])
+    conn = get_db()
+    store = conn.execute(
+        "SELECT store_url, access_token FROM shopify_stores WHERE id = ? AND user_id = ?",
+        (store_id, owner_id)
+    ).fetchone()
+    conn.close()
+
+    if not store or not store["access_token"]:
+        return jsonify({"erro": "Loja não encontrada"}), 404
+
+    store_url = store["store_url"]
+    token = store["access_token"]
+
+    try:
+        client = get_client()
+    except ValueError as e:
+        return jsonify({"erro": str(e)}), 500
+
+    results_by_lang = {}
+    total_translated = 0
+
+    # Fetch full product data once
+    products_data = {}
+    for pid in product_ids:
+        try:
+            url = f"https://{store_url}/admin/api/{SHOPIFY_API_VERSION}/products/{pid}.json"
+            resp = http_requests.get(url, headers={"X-Shopify-Access-Token": token}, timeout=30)
+            if resp.status_code == 200:
+                p = resp.json().get("product", {})
+                products_data[pid] = p
+        except Exception as e:
+            logger.warning(f"[TraduzirExistentes] erro ao buscar produto {pid}: {e}")
+
+    for lang in langs:
+        shopify_locale = LANG_TO_SHOPIFY_LOCALE.get(lang, lang)
+        idioma_nome = IDIOMAS.get(lang, lang)
+        lang_results = {"translated": 0, "errors": []}
+
+        for pid, product in products_data.items():
+            handle = product.get("handle", str(pid))
+            try:
+                title = product.get("title", "")
+                body_html = product.get("body_html", "") or ""
+
+                # SEO metafields — need separate query
+                seo_title = ""
+                seo_desc = ""
+                # Options
+                options = product.get("options", [])
+                options_for_translation = [
+                    {"name": o.get("name", ""), "values": o.get("values", [])}
+                    for o in options
+                ]
+
+                # Translate via Claude Sonnet
+                traducao = traduzir_texto_produto(
+                    client, title, body_html, seo_title, seo_desc,
+                    product.get("tags", "") or "",
+                    idioma_nome, marca_de, marca_para,
+                    options=options_for_translation if options_for_translation else None,
+                )
+
+                # Register translations
+                resource_gid = f"gid://shopify/Product/{pid}"
+                content_list = shopify_get_translatable_content(store_url, token, resource_gid)
+                if not content_list:
+                    lang_results["errors"].append(f"{handle}: sem conteúdo traduzível")
+                    continue
+
+                digest_map = {c["key"]: c["digest"] for c in content_list}
+                translations_to_register = []
+
+                tt_title = traducao.get("title", "")
+                if tt_title and "title" in digest_map:
+                    translations_to_register.append({
+                        "key": "title", "value": tt_title, "digest": digest_map["title"],
+                    })
+
+                tt_body = traducao.get("body_html", "")
+                if tt_body and "body_html" in digest_map:
+                    translations_to_register.append({
+                        "key": "body_html", "value": tt_body, "digest": digest_map["body_html"],
+                    })
+
+                tt_seo_title = traducao.get("seo_title", "")
+                if tt_seo_title and "meta_title" in digest_map:
+                    translations_to_register.append({
+                        "key": "meta_title", "value": tt_seo_title, "digest": digest_map["meta_title"],
+                    })
+
+                tt_seo_desc = traducao.get("seo_description", "")
+                if tt_seo_desc and "meta_description" in digest_map:
+                    translations_to_register.append({
+                        "key": "meta_description", "value": tt_seo_desc, "digest": digest_map["meta_description"],
+                    })
+
+                if translations_to_register:
+                    result = shopify_register_translation(
+                        store_url, token, resource_gid, shopify_locale, translations_to_register
+                    )
+                    user_errors = result.get("data", {}).get("translationsRegister", {}).get("userErrors", [])
+                    if user_errors:
+                        err_msgs = "; ".join(e.get("message", "") for e in user_errors)
+                        lang_results["errors"].append(f"{handle}: {err_msgs}")
+                    else:
+                        lang_results["translated"] += 1
+                        total_translated += 1
+
+                # Translate options
+                trans_options = traducao.get("options", [])
+                for i, orig_opt in enumerate(options):
+                    if i >= len(trans_options):
+                        break
+                    t_opt = trans_options[i]
+                    opt_id = orig_opt.get("id")
+                    if not opt_id:
+                        continue
+                    opt_gid = f"gid://shopify/ProductOption/{opt_id}"
+                    try:
+                        opt_content = shopify_get_translatable_content(store_url, token, opt_gid)
+                        opt_digest_map = {c["key"]: c["digest"] for c in opt_content}
+                        opt_trans = []
+                        t_name = t_opt.get("name", "")
+                        if t_name and "name" in opt_digest_map:
+                            opt_trans.append({
+                                "key": "name", "value": t_name, "digest": opt_digest_map["name"],
+                            })
+                        if opt_trans:
+                            shopify_register_translation(
+                                store_url, token, opt_gid, shopify_locale, opt_trans
+                            )
+                    except Exception as opt_err:
+                        logger.warning(f"[TraduzirExistentes] option {opt_id}: {opt_err}")
+
+            except Exception as e:
+                logger.error(f"[TraduzirExistentes] {handle} ({lang}): {e}")
+                lang_results["errors"].append(f"{handle}: {str(e)}")
+
+        results_by_lang[lang] = lang_results
+
+    return jsonify({
+        "ok": True,
+        "total_translated": total_translated,
+        "by_language": results_by_lang,
+    })
+
+
 # ─── Rotas CSV Shopify ────────────────────────────────────
 
 @app.route("/csv/analisar", methods=["POST"])
