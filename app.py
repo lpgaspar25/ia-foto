@@ -3186,8 +3186,17 @@ def shopify_publicar():
                 resp.raise_for_status()
                 new_product = resp.json().get("product", {})
                 new_id = new_product.get("id")
+                new_handle = new_product.get("handle", "")
                 if new_id:
                     product_ids_for_collection.append(new_id)
+                    # Persist new product id back to state so subsequent
+                    # /shopify/traduzir can find it by handle.
+                    for sp in shopify_products:
+                        if sp.get("handle") == handle and not sp.get("id"):
+                            sp["id"] = new_id
+                            if new_handle:
+                                sp["shopify_handle"] = new_handle
+                            break
 
                 # ── Upload description images separately & fix body_html ──
                 if new_id and desc_image_data:
@@ -3287,6 +3296,15 @@ def shopify_publicar():
                 collection_added += 1
             except Exception as e:
                 logger.warning(f"[Shopify] Erro ao adicionar produto {pid} à coleção: {e}")
+
+    # Persist state with newly created product IDs so /shopify/traduzir
+    # can find them without relying on handle lookup.
+    try:
+        state["shopify_products"] = shopify_products
+        with open(state_path, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False)
+    except Exception as e:
+        logger.warning(f"[Shopify] Falha ao salvar state.json com IDs: {e}")
 
     return jsonify({
         "ok": True,
