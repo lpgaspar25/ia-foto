@@ -3377,6 +3377,7 @@ def shopify_traduzir():
     # Read translated CSV
     csv_path = job_dir / lang / f"products_export_{lang}.csv"
     text_translations = {}
+    csv_missing = not csv_path.exists()
     if csv_path.exists():
         with open(csv_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -3390,6 +3391,8 @@ def shopify_traduzir():
                         "seo_description": row.get("SEO Description", ""),
                         "tags": row.get("Tags", ""),
                     }
+    else:
+        logger.warning(f"[Translate] CSV traduzido não encontrado em {csv_path}. Rode a tradução de textos primeiro.")
 
     # Load translated options
     lang_dir = job_dir / lang
@@ -3403,6 +3406,7 @@ def shopify_traduzir():
     errors = []
     seen_handles = set()
     not_found = []
+    no_translations = []  # handles sem texto traduzido para registrar
 
     for product in shopify_products:
         handle = product.get("handle", "")
@@ -3491,6 +3495,11 @@ def shopify_traduzir():
                 })
 
             if not translations_to_register:
+                no_translations.append(handle)
+                logger.warning(
+                    f"[Translate] {handle}: nenhum campo para registrar "
+                    f"(csv_has_handle={handle in text_translations}, csv_missing={csv_missing})"
+                )
                 continue
 
             # Register translations
@@ -3560,6 +3569,8 @@ def shopify_traduzir():
         "translated": translated,
         "errors": errors,
         "not_found": not_found,
+        "no_translations": no_translations,
+        "csv_missing": csv_missing,
         "language": nome_idioma,
         "locale": shopify_locale,
     })

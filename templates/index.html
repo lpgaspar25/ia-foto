@@ -3947,6 +3947,11 @@
                         if (data.not_found && data.not_found.length > 0) {
                             line += ` <span style="color:#f59e0b;">(${data.not_found.length} não encontrados)</span>`;
                         }
+                        if (data.csv_missing) {
+                            line += ` <span style="color:#ef4444;">⚠️ CSV de ${lang.toUpperCase()} não gerado — rode "Traduzir Textos" antes</span>`;
+                        } else if (data.no_translations && data.no_translations.length > 0) {
+                            line += ` <span style="color:#f59e0b;">(${data.no_translations.length} sem texto para traduzir)</span>`;
+                        }
                         results.push(line);
                     }
                 } catch (err) {
